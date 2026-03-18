@@ -13,19 +13,19 @@ import math
 # ---------------------------------------------------------------------------
 # Field dimensions
 # ---------------------------------------------------------------------------
-FIELD_WIDTH  = 120.0   # x-axis: Team 0 goal (x=0) → Team 1 goal (x=FIELD_WIDTH)
-FIELD_DEPTH  =  68.0   # y-axis: bottom wall (y=0) → top wall (y=FIELD_DEPTH)
+FIELD_DEPTH  = 120.0   # x-axis: Team 0 goal (x=0) → Team 1 goal (x=FIELD_DEPTH)
+FIELD_WIDTH  =  68.0   # y-axis: bottom wall (y=0) → top wall (y=FIELD_WIDTH)
 
 # Goal opening, centered on the y-axis
 GOAL_WIDTH = 20.0
-GOAL_Y_MIN = (FIELD_DEPTH - GOAL_WIDTH) / 2   # 24.0 cm
-GOAL_Y_MAX = (FIELD_DEPTH + GOAL_WIDTH) / 2   # 44.0 cm
+GOAL_Y_MIN = (FIELD_WIDTH - GOAL_WIDTH) / 2   # 24.0 cm
+GOAL_Y_MAX = (FIELD_WIDTH + GOAL_WIDTH) / 2   # 44.0 cm
 
 # ---------------------------------------------------------------------------
 # Rod layout — 8 rods, left-to-right, alternating teams
 #
 # Team 0 attacks rightward (+x) and defends the left goal  (x = 0)
-# Team 1 attacks leftward  (-x) and defends the right goal (x = FIELD_WIDTH)
+# Team 1 attacks leftward  (-x) and defends the right goal (x = FIELD_DEPTH)
 #
 # Each entry: (team_id, n_players)  |  (-1, -1) = blank slot (no rod)
 # Using the 3-goalie variant: goalie rods have 3 players instead of 1.
@@ -49,12 +49,12 @@ KICKOFF_ROD = {0: 3, 1: 4}
 # ---------------------------------------------------------------------------
 # Player physical parameters
 # ---------------------------------------------------------------------------
-PLAYER_Y_REACH = 3.5   # cm — half-width of a player's hitbox in y
-PLAYER_X_REACH = 1.5   # cm — half-depth of a player's hitbox in x
+PLAYER_WIDTH     = 2.5   # cm — full width of a player figure (y direction)
+PLAYER_THICKNESS = 1.4   # cm — full thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
-ROD_X_REACH = 3.5      # cm — max x-offset from rod origin
+ROD_X_REACH = 2.5      # cm — max x-offset from rod origin
 
 # ---------------------------------------------------------------------------
 # Time-stepped simulation

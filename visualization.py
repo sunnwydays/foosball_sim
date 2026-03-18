@@ -45,18 +45,18 @@ def _draw_base_field(ax: plt.Axes, field: Field) -> None:
     ax.set_facecolor(FIELD_GREEN)
 
     rect = patches.Rectangle(
-        (0, 0), field.width, field.depth,
+        (0, 0), field.depth, field.width,
         linewidth=2, edgecolor=LINE_WHITE, facecolor="none",
     )
     ax.add_patch(rect)
 
-    ax.axvline(field.width / 2, color=LINE_WHITE, linewidth=1, linestyle="--", alpha=0.5)
+    ax.axvline(field.depth / 2, color=LINE_WHITE, linewidth=1, linestyle="--", alpha=0.5)
 
-    goal_depth = 5.0
+    goal_vis_depth = 5.0
     for goal in (field.left_goal, field.right_goal):
-        gx = -goal_depth if goal.x == 0 else field.width
+        gx = -goal_vis_depth if goal.x == 0 else field.depth
         g = patches.Rectangle(
-            (gx, goal.y_min), goal_depth, goal.y_max - goal.y_min,
+            (gx, goal.y_min), goal_vis_depth, goal.y_max - goal.y_min,
             linewidth=1.5, edgecolor=LINE_WHITE,
             facecolor=TEAM_COLOR[goal.scoring_team], alpha=0.6,
         )
@@ -82,22 +82,23 @@ def _draw_rods_from_offsets(
 
         # Rod line
         ax.plot(
-            [rod.x, rod.x], [0, field.depth],
+            [rod.x, rod.x], [0, field.width],
             color=color, linewidth=1.5, alpha=0.4, zorder=2,
         )
 
         for py in rod.player_positions:
             # Player body
-            circle = plt.Circle(
-                (rod.x, py), radius=2.8,
-                color=color, zorder=3,
+            player_rect = patches.Rectangle(
+                (rod.x - rod.thickness / 2, py - rod.width / 2),
+                rod.thickness, rod.width,
+                linewidth=0, facecolor=color, zorder=3,
             )
-            ax.add_patch(circle)
+            ax.add_patch(player_rect)
 
             if show_reach:
                 reach_rect = patches.Rectangle(
-                    (rod._base_x - rod.rod_x_reach, py - 2.8),
-                    2 * rod.rod_x_reach, 2 * 2.8,
+                    (rod._base_x - rod.rod_x_reach, py - rod.width / 2),
+                    2 * rod.rod_x_reach, rod.width,
                     linewidth=0.5, edgecolor=color, facecolor=color,
                     alpha=0.15, zorder=1,
                 )
@@ -105,7 +106,7 @@ def _draw_rods_from_offsets(
 
         # Controlled indicator
         if rod_ctrl[i]:
-            ax.plot(rod.x, field.depth + 1, 'v', color=color, markersize=5, zorder=5)
+            ax.plot(rod.x, field.width + 1, 'v', color=color, markersize=5, zorder=5)
 
         # Restore
         rod.y_offset, rod.x_offset = orig_y, orig_x
@@ -143,8 +144,8 @@ def draw_field(
         )
         ax.add_patch(ball_circle)
 
-    ax.set_xlim(-6, field.width + 6)
-    ax.set_ylim(-2, field.depth + 4)
+    ax.set_xlim(-6, field.depth + 6)
+    ax.set_ylim(-2, field.width + 4)
     ax.set_aspect("equal")
     ax.set_title(title, color="white", pad=8)
     ax.set_facecolor(FIELD_GREEN)
@@ -236,8 +237,8 @@ def replay_point(
             )
             ax.add_patch(hit_circle)
 
-        ax.set_xlim(-6, field.width + 6)
-        ax.set_ylim(-2, field.depth + 4)
+        ax.set_xlim(-6, field.depth + 6)
+        ax.set_ylim(-2, field.width + 4)
         ax.set_aspect("equal")
         ax.set_facecolor(FIELD_GREEN)
         ax.tick_params(colors="white")

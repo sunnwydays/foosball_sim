@@ -33,7 +33,7 @@ class Rod:
     - Slides along the y-axis (all players move together).
     - x_offset models rotation (±rod_x_reach from base).
     - Players are evenly spaced vertically; their default centers are at
-      (i+1) * (FIELD_DEPTH / (n_players + 1)) for i in 0..n_players-1.
+      (i+1) * (FIELD_WIDTH / (n_players + 1)) for i in 0..n_players-1.
 
     Continuous movement
     -------------------
@@ -55,8 +55,8 @@ class Rod:
         n_players: int,
         skill: float = 0.5,
         consistency: float = 0.5,
-        y_reach: float = config.PLAYER_Y_REACH,
-        x_reach: float = config.PLAYER_X_REACH,
+        width: float = config.PLAYER_WIDTH,
+        thickness: float = config.PLAYER_THICKNESS,
         rod_x_reach: float = config.ROD_X_REACH,
     ):
         self._base_x     = x
@@ -64,8 +64,8 @@ class Rod:
         self.n_players   = n_players
         self.skill       = skill
         self.consistency = consistency
-        self.y_reach     = y_reach
-        self.x_reach     = x_reach
+        self.width      = width
+        self.thickness   = thickness
         self.rod_x_reach = rod_x_reach
 
         # --- Mutable positional state ---
@@ -86,14 +86,14 @@ class Rod:
         self._x_slide_max =  rod_x_reach
 
         # Default player centers (equally spaced, centered on field depth)
-        spacing = config.FIELD_DEPTH / (n_players + 1)
+        spacing = config.FIELD_WIDTH / (n_players + 1)
         self._base_positions: list[float] = [
             (i + 1) * spacing for i in range(n_players)
         ]
 
-        # Valid y offset range: outermost players must stay within [0, FIELD_DEPTH]
-        self._slide_min = -self._base_positions[0]  + y_reach
-        self._slide_max =  config.FIELD_DEPTH - self._base_positions[-1] - y_reach
+        # Valid y offset range: outermost players must stay within [0, FIELD_WIDTH]
+        self._slide_min = -self._base_positions[0]  + width / 2
+        self._slide_max =  config.FIELD_WIDTH - self._base_positions[-1] - width / 2
 
     # ------------------------------------------------------------------
     # Properties
@@ -148,7 +148,7 @@ class Rod:
         or None.
         """
         for i, py in enumerate(self.player_positions):
-            if abs(x - self.x) <= self.x_reach and abs(y - py) <= self.y_reach:
+            if abs(x - self.x) <= self.thickness / 2 and abs(y - py) <= self.width / 2:
                 return i
         return None
 
@@ -209,7 +209,7 @@ class Goal:
 
     scoring_team: the team that SCORES when the ball enters this goal.
       - left_goal  (x=0):            Team 1 scores (beat Team 0's defense)
-      - right_goal (x=FIELD_WIDTH):  Team 0 scores (beat Team 1's defense)
+      - right_goal (x=FIELD_DEPTH):  Team 0 scores (beat Team 1's defense)
     """
     x:            float
     scoring_team: int
@@ -285,9 +285,9 @@ class Field:
     Coordinate system
     -----------------
     x=0           : Team 0's goal line (left wall)
-    x=FIELD_WIDTH : Team 1's goal line (right wall)
+    x=FIELD_DEPTH : Team 1's goal line (right wall)
     y=0           : bottom side wall
-    y=FIELD_DEPTH : top side wall
+    y=FIELD_WIDTH : top side wall
 
     Team 0 attacks rightward (+x direction).
     Team 1 attacks leftward  (-x direction).
@@ -295,31 +295,31 @@ class Field:
 
     def __init__(
         self,
-        width:           float        = config.FIELD_WIDTH,
         depth:           float        = config.FIELD_DEPTH,
+        width:           float        = config.FIELD_WIDTH,
         goal_width:      float        = config.GOAL_WIDTH,
         rod_x_positions: list[float]  = None,
         rod_configs:     list[tuple]  = None,
-        player_y_reach:  float        = config.PLAYER_Y_REACH,
-        player_x_reach:  float        = config.PLAYER_X_REACH,
+        player_width:   float        = config.PLAYER_WIDTH,
+        player_thickness:  float        = config.PLAYER_THICKNESS,
         rod_x_reach:     float        = config.ROD_X_REACH,
     ):
-        self.width = width
         self.depth = depth
+        self.width = width
 
         # Goals (centered on y-axis)
-        gy_min = (depth - goal_width) / 2
-        gy_max = (depth + goal_width) / 2
+        gy_min = (width - goal_width) / 2
+        gy_max = (width + goal_width) / 2
 
         self.left_goal  = Goal(x=0.0,  scoring_team=1, y_min=gy_min, y_max=gy_max)
-        self.right_goal = Goal(x=width, scoring_team=0, y_min=gy_min, y_max=gy_max)
+        self.right_goal = Goal(x=depth, scoring_team=0, y_min=gy_min, y_max=gy_max)
 
         # Build rods from config; (-1, -1) entries are blank slots (no rod)
         xs    = rod_x_positions or config.ROD_X_POSITIONS
         cfgs  = rod_configs     or config.ROD_CONFIGS
         self.rods: list[Rod] = [
             Rod(x=x, team=team, n_players=n,
-                y_reach=player_y_reach, x_reach=player_x_reach,
+                width=player_width, thickness=player_thickness,
                 rod_x_reach=rod_x_reach)
             for x, (team, n) in zip(xs, cfgs)
             if team != -1
@@ -345,7 +345,7 @@ class Field:
     def describe(self) -> str:
         """Human-readable field summary for debugging."""
         lines = [
-            f"Field {self.width}x{self.depth} cm  |  "
+            f"Field {self.depth}x{self.width} cm  |  "
             f"Goals: y=[{self.left_goal.y_min}, {self.left_goal.y_max}]",
             "",
             f"{'Idx':>3}  {'Team':>4}  {'x':>6}  {'Players':>7}  {'Positions (y)'}",

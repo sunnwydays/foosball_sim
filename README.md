@@ -16,8 +16,8 @@ pip install -r requirements.txt
 # Run all experiments (Monte Carlo stats printed to console)
 python main.py
 
-# Simulate a single point, save a replay gif, and open it
+# Simulate and visualize a single point
 python play.py
 ```
 
-Edit the settings at the top of `play.py` to change the seed, strategies, skill levels, FPS, etc. Set `SHOW_LIVE = True` to watch in a matplotlib window instead of saving a gif.
+Edit the settings at the top of [play.py](play.py) to change the seed, strategies, skill levels, and FPS. The replay gif is saved to `output/replay.gif` and opened automatically in your default viewer. Set `SHOW_LIVE = True` to watch it in a live matplotlib window instead.

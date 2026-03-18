@@ -11,7 +11,7 @@ from strategy import SmackBall, AimAtGap
 from monte_carlo import run_monte_carlo
 
 
-N = 500   # simulations per experiment (lower than before — each sim is more ticks)
+N = 5000   # simulations per experiment
 
 
 def run_experiment(

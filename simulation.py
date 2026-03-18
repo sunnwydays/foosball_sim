@@ -109,7 +109,7 @@ def simulate_point(
 
     ball = BallState(
         x  = kickoff_rod.x,
-        y  = field.depth / 2,
+        y  = field.width / 2,
         vx = 0.0,
         vy = 0.0,
     )

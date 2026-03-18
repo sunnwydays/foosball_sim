@@ -116,7 +116,7 @@ class SmackBall(Strategy):
         targets = {}
         for rod_idx, rod in controlled_rods:
             # Slide rod center toward ball_y
-            target_y = ball.y - field.depth / 2
+            target_y = ball.y - field.width / 2
             targets[rod_idx] = (target_y, 0.0)
         return targets
 
@@ -184,7 +184,7 @@ class AimAtGap(Strategy):
     ) -> dict[int, tuple[float, float]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.depth / 2
+            target_y = ball.y - field.width / 2
             targets[rod_idx] = (target_y, 0.0)
         return targets
 
@@ -209,7 +209,7 @@ class AimAtGap(Strategy):
 
         nearest = opp_rods[0]
         positions = sorted(nearest.player_positions)
-        reach = nearest.y_reach
+        reach = nearest.width / 2
 
         gaps: list[tuple[float, float]] = []
         first_top = positions[0] - reach
@@ -221,8 +221,8 @@ class AimAtGap(Strategy):
             if hi > lo:
                 gaps.append((lo, hi))
         last_bot = positions[-1] + reach
-        if last_bot < field.depth:
-            gaps.append((last_bot, field.depth))
+        if last_bot < field.width:
+            gaps.append((last_bot, field.width))
 
         if gaps:
             best = max(gaps, key=lambda g: g[1] - g[0])

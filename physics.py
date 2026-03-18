@@ -44,12 +44,12 @@ def step_ball(ball: BallState, field: Field, dt: float) -> str:
     if ball.y <= 0:
         ball.y = -ball.y               # reflect
         ball.vy = abs(ball.vy)          # ensure moving upward
-    elif ball.y >= field.depth:
-        ball.y = 2 * field.depth - ball.y
+    elif ball.y >= field.width:
+        ball.y = 2 * field.width - ball.y
         ball.vy = -abs(ball.vy)         # ensure moving downward
 
     # Clamp in case of floating-point overshoot
-    ball.y = max(0.0, min(field.depth, ball.y))
+    ball.y = max(0.0, min(field.width, ball.y))
 
     # --- End wall / goal check (x boundaries) ---
     if ball.x <= 0:
@@ -59,14 +59,14 @@ def step_ball(ball: BallState, field: Field, dt: float) -> str:
         ball.x = -ball.x
         ball.vx = abs(ball.vx)
 
-    elif ball.x >= field.width:
+    elif ball.x >= field.depth:
         if field.right_goal.contains(ball.y):
             return f"goal:{field.right_goal.scoring_team}"
-        ball.x = 2 * field.width - ball.x
+        ball.x = 2 * field.depth - ball.x
         ball.vx = -abs(ball.vx)
 
     # Clamp x
-    ball.x = max(0.0, min(field.width, ball.x))
+    ball.x = max(0.0, min(field.depth, ball.x))
 
     # --- Friction ---
     speed = ball.speed
