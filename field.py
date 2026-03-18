@@ -3,11 +3,11 @@ field.py — Core data structures for the foosball table.
 
 Classes
 -------
-Rod        — A single foosball rod (fixed x, slides along y-axis).
+Rod        — A single foosball rod (slides in y, rotates modelled as x-slide).
 Goal       — A goal opening on one end wall.
-BallState  — The ball's current position and which rod possesses it.
-TraceResult— The outcome of tracing a ball trajectory.
-Field      — The complete table: rods, goals, and dimensions.
+BallState  — The ball's position and velocity.
+TeamState  — Per-team mutable state: active hands, reaction timer.
+Field      — The complete table: rods, goals, dimensions.
 """
 
 from __future__ import annotations
@@ -29,22 +29,23 @@ class Rod:
 
     Physical layout
     ---------------
-    - Fixed at x on the field.
+    - Base position at _base_x on the field.
     - Slides along the y-axis (all players move together).
+    - x_offset models rotation (±rod_x_reach from base).
     - Players are evenly spaced vertically; their default centers are at
-      (i+1) * (FIELD_HEIGHT / (n_players + 1)) for i in 0..n_players-1.
+      (i+1) * (FIELD_DEPTH / (n_players + 1)) for i in 0..n_players-1.
+
+    Continuous movement
+    -------------------
+    target_y  : where the rod is trying to slide to (y_offset target)
+    vy        : current y-velocity (moves toward target_y at up to MOVEMENT_SPEED)
+    switch_timer : seconds remaining before this rod responds to commands
+                   (set when a hand switches to this rod)
 
     Skill parameters
     ----------------
     skill       : [0, 1] — controls shot angle std dev.
-                  skill=1 → tight distribution (precise); skill=0 → wide (wild).
     consistency : [0, 1] — controls shot speed std dev.
-                  consistency=1 → consistent pace; consistency=0 → erratic.
-
-    Sliding
-    -------
-    y_offset shifts every player by the same amount.
-    set_offset() clamps to keep all players inside the field boundaries.
     """
 
     def __init__(
@@ -55,6 +56,8 @@ class Rod:
         skill: float = 0.5,
         consistency: float = 0.5,
         y_reach: float = config.PLAYER_Y_REACH,
+        x_reach: float = config.PLAYER_X_REACH,
+        rod_x_reach: float = config.ROD_X_REACH,
     ):
         self._base_x     = x
         self.team        = team
@@ -62,22 +65,35 @@ class Rod:
         self.skill       = skill
         self.consistency = consistency
         self.y_reach     = y_reach
-        self.y_offset    = 0.0   # mutable sliding state (y-axis)
-        self.x_offset    = 0.0   # mutable sliding state (x-axis)
+        self.x_reach     = x_reach
+        self.rod_x_reach = rod_x_reach
 
-        # x slide bounds: rod must stay within the field
-        self._x_slide_min = -self._base_x
-        self._x_slide_max = config.FIELD_WIDTH - self._base_x
+        # --- Mutable positional state ---
+        self.y_offset    = 0.0   # current y slide
+        self.x_offset    = 0.0   # current x slide (rotation)
 
-        # Default player centers (equally spaced, centered on field height)
-        spacing = config.FIELD_HEIGHT / (n_players + 1)
+        # --- Continuous movement state ---
+        self.target_y    = 0.0   # desired y_offset (rod moves toward this)
+        self.vy          = 0.0   # current y-velocity (cm/s)
+
+        # --- Control state ---
+        self.controlled    = False  # is a hand currently on this rod?
+        self.switch_timer  = 0.0    # seconds until rod responds after hand switch
+
+        # --- Bounds ---
+        # x slide: rod can move ±rod_x_reach from origin (models rotation)
+        self._x_slide_min = -rod_x_reach
+        self._x_slide_max =  rod_x_reach
+
+        # Default player centers (equally spaced, centered on field depth)
+        spacing = config.FIELD_DEPTH / (n_players + 1)
         self._base_positions: list[float] = [
             (i + 1) * spacing for i in range(n_players)
         ]
 
-        # Valid offset range: outermost players must stay within [0, FIELD_HEIGHT]
+        # Valid y offset range: outermost players must stay within [0, FIELD_DEPTH]
         self._slide_min = -self._base_positions[0]  + y_reach
-        self._slide_max =  config.FIELD_HEIGHT - self._base_positions[-1] - y_reach
+        self._slide_max =  config.FIELD_DEPTH - self._base_positions[-1] - y_reach
 
     # ------------------------------------------------------------------
     # Properties
@@ -95,15 +111,12 @@ class Rod:
 
     @property
     def slide_range(self) -> tuple[float, float]:
-        """(min_offset, max_offset) — valid sliding range."""
+        """(min_offset, max_offset) — valid y sliding range."""
         return self._slide_min, self._slide_max
 
     @property
     def angle_std(self) -> float:
-        """
-        Shot angle std dev (radians) derived from skill.
-        Linear interpolation: skill=0 → MAX_ANGLE_STD, skill=1 → MIN_ANGLE_STD.
-        """
+        """Shot angle std dev (radians) derived from skill."""
         return (
             config.MAX_ANGLE_STD
             + self.skill * (config.MIN_ANGLE_STD - config.MAX_ANGLE_STD)
@@ -126,31 +139,62 @@ class Rod:
         self.y_offset = max(self._slide_min, min(self._slide_max, offset))
 
     def set_x_offset(self, offset: float) -> None:
-        """Slide rod to x `offset`, clamping to keep the rod within the field."""
+        """Slide rod to x `offset`, clamping within rotation bounds."""
         self.x_offset = max(self._x_slide_min, min(self._x_slide_max, offset))
 
-    def player_at_y(self, y: float) -> Optional[int]:
+    def player_in_box(self, x: float, y: float) -> Optional[int]:
         """
-        Return the index of the player whose hitbox covers y, or None.
-
-        Used by physics.py during ray-casting: if the ball's trajectory
-        passes through this rod's x-position at height y, and a player's
-        hitbox covers y, possession transfers to this rod.
+        Return the index of the player whose 2D bounding box covers (x, y),
+        or None.
         """
         for i, py in enumerate(self.player_positions):
-            if abs(y - py) <= self.y_reach:
+            if abs(x - self.x) <= self.x_reach and abs(y - py) <= self.y_reach:
                 return i
         return None
 
+    def step_movement(self, dt: float) -> None:
+        """
+        Move the rod toward target_y for one tick.
+
+        If the rod is not controlled or its switch_timer is active,
+        it stops (vy → 0) and stays in place.
+        """
+        # Tick down switch timer
+        if self.switch_timer > 0:
+            self.switch_timer = max(0.0, self.switch_timer - dt)
+
+        # Can't move if not controlled or still switching
+        if not self.controlled or self.switch_timer > 0:
+            self.vy = 0.0
+            return
+
+        # Move toward target_y at up to MOVEMENT_SPEED
+        diff = self.target_y - self.y_offset
+        if abs(diff) < 1e-6:
+            self.vy = 0.0
+            return
+
+        direction = 1.0 if diff > 0 else -1.0
+        max_step = config.MOVEMENT_SPEED * dt
+        step = min(abs(diff), max_step)
+
+        self.vy = direction * config.MOVEMENT_SPEED
+        self.set_offset(self.y_offset + direction * step)
+
     def reset(self) -> None:
-        """Reset sliding position to default (centered)."""
-        self.y_offset = 0.0
-        self.x_offset = 0.0
+        """Reset all mutable state to defaults."""
+        self.y_offset     = 0.0
+        self.x_offset     = 0.0
+        self.target_y     = 0.0
+        self.vy           = 0.0
+        self.controlled   = False
+        self.switch_timer = 0.0
 
     def __repr__(self) -> str:
+        ctrl = "H" if self.controlled else "-"
         return (
-            f"Rod(x={self.x}, team={self.team}, n={self.n_players}, "
-            f"skill={self.skill:.2f}, offset={self.y_offset:.1f})"
+            f"Rod(x={self.x:.1f}, team={self.team}, n={self.n_players}, "
+            f"y_off={self.y_offset:.1f}, ctrl={ctrl})"
         )
 
 
@@ -184,34 +228,50 @@ class Goal:
 @dataclass
 class BallState:
     """
-    The ball's current state when a rod has possession.
+    The ball's position and velocity.
 
-    x, y               — position on the field (x = rod.x, y = player center)
-    possessing_rod_idx — index into Field.rods
+    x, y   — position on the field
+    vx, vy — velocity (cm/s)
     """
-    x:                  float
-    y:                  float
-    possessing_rod_idx: int
+    x:  float = 0.0
+    y:  float = 0.0
+    vx: float = 0.0
+    vy: float = 0.0
+
+    @property
+    def speed(self) -> float:
+        return math.sqrt(self.vx ** 2 + self.vy ** 2)
+
+    @property
+    def stopped(self) -> bool:
+        return self.speed < config.STOP_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
-# Trace result
+# Team state
 # ---------------------------------------------------------------------------
 
 @dataclass
-class TraceResult:
+class TeamState:
     """
-    What happened at the end of a ball trajectory trace.
+    Per-team mutable state for the continuous simulation.
 
-    kind: 'goal'       — ball entered a goal; `scoring_team` is set.
-          'possession'  — ball intercepted by a player; `rod_idx`, `x`, `y` are set.
-          'dead'        — ball left the field or max bounces exceeded; point resets.
+    active_rods    : set of rod indices (into Field.rods) currently held.
+    reaction_timer : seconds remaining before this team can change rod directions.
+                     Set when the opponent hits the ball.
     """
-    kind:         str
-    scoring_team: int   = -1
-    rod_idx:      int   = -1
-    x:            float = 0.0
-    y:            float = 0.0
+    active_rods:    set[int] = dc_field(default_factory=set)
+    reaction_timer: float    = 0.0
+
+    @property
+    def reacting(self) -> bool:
+        """True if this team is still in reaction-time lockout."""
+        return self.reaction_timer > 0
+
+    def tick(self, dt: float) -> None:
+        """Decrement the reaction timer."""
+        if self.reaction_timer > 0:
+            self.reaction_timer = max(0.0, self.reaction_timer - dt)
 
 
 # ---------------------------------------------------------------------------
@@ -222,15 +282,12 @@ class Field:
     """
     The complete foosball table.
 
-    Owns the list of Rod objects and the two Goal objects.
-    All rod y-offsets are mutable (strategies slide rods each turn).
-
     Coordinate system
     -----------------
     x=0           : Team 0's goal line (left wall)
     x=FIELD_WIDTH : Team 1's goal line (right wall)
     y=0           : bottom side wall
-    y=FIELD_HEIGHT: top side wall
+    y=FIELD_DEPTH : top side wall
 
     Team 0 attacks rightward (+x direction).
     Team 1 attacks leftward  (-x direction).
@@ -239,30 +296,33 @@ class Field:
     def __init__(
         self,
         width:           float        = config.FIELD_WIDTH,
-        height:          float        = config.FIELD_HEIGHT,
+        depth:           float        = config.FIELD_DEPTH,
         goal_width:      float        = config.GOAL_WIDTH,
         rod_x_positions: list[float]  = None,
         rod_configs:     list[tuple]  = None,
         player_y_reach:  float        = config.PLAYER_Y_REACH,
+        player_x_reach:  float        = config.PLAYER_X_REACH,
+        rod_x_reach:     float        = config.ROD_X_REACH,
     ):
-        self.width  = width
-        self.height = height
+        self.width = width
+        self.depth = depth
 
         # Goals (centered on y-axis)
-        gy_min = (height - goal_width) / 2
-        gy_max = (height + goal_width) / 2
+        gy_min = (depth - goal_width) / 2
+        gy_max = (depth + goal_width) / 2
 
-        # Ball entering the LEFT  goal → Team 1 scored (broke through Team 0's defense)
-        # Ball entering the RIGHT goal → Team 0 scored (broke through Team 1's defense)
         self.left_goal  = Goal(x=0.0,  scoring_team=1, y_min=gy_min, y_max=gy_max)
         self.right_goal = Goal(x=width, scoring_team=0, y_min=gy_min, y_max=gy_max)
 
-        # Build rods from config
+        # Build rods from config; (-1, -1) entries are blank slots (no rod)
         xs    = rod_x_positions or config.ROD_X_POSITIONS
         cfgs  = rod_configs     or config.ROD_CONFIGS
         self.rods: list[Rod] = [
-            Rod(x=x, team=team, n_players=n, y_reach=player_y_reach)
+            Rod(x=x, team=team, n_players=n,
+                y_reach=player_y_reach, x_reach=player_x_reach,
+                rod_x_reach=rod_x_reach)
             for x, (team, n) in zip(xs, cfgs)
+            if team != -1
         ]
 
     # ------------------------------------------------------------------
@@ -270,23 +330,22 @@ class Field:
     # ------------------------------------------------------------------
 
     def goal_for_attacker(self, team: int) -> Goal:
-        """The goal the given team is attacking (i.e., trying to score in)."""
-        # Team 0 attacks right → right_goal; Team 1 attacks left → left_goal
+        """The goal the given team is attacking."""
         return self.right_goal if team == 0 else self.left_goal
 
     def rods_for_team(self, team: int) -> list[tuple[int, Rod]]:
         """Return [(index, rod), ...] for all rods belonging to `team`."""
         return [(i, r) for i, r in enumerate(self.rods) if r.team == team]
 
-    def reset_rod_offsets(self) -> None:
-        """Reset every rod to its default (centered) sliding position."""
+    def reset(self) -> None:
+        """Reset every rod to defaults."""
         for rod in self.rods:
             rod.reset()
 
     def describe(self) -> str:
         """Human-readable field summary for debugging."""
         lines = [
-            f"Field {self.width}x{self.height} cm  |  "
+            f"Field {self.width}x{self.depth} cm  |  "
             f"Goals: y=[{self.left_goal.y_min}, {self.left_goal.y_max}]",
             "",
             f"{'Idx':>3}  {'Team':>4}  {'x':>6}  {'Players':>7}  {'Positions (y)'}",

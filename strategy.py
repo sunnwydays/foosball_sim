@@ -1,27 +1,19 @@
 """
-strategy.py — Strategy interface and built-in implementations.
+strategy.py — Strategy interface and implementations for continuous simulation.
 
-A Strategy is called once per turn and makes two decisions simultaneously:
+A Strategy is called every tick and makes three decisions:
 
-  choose_shot(rod, ball_y, field)
-      → (target_angle, target_speed)
-      Called when `rod` has possession. Returns the INTENDED shot direction
-      and speed. Actual shot will have noise added by simulation.py based on
-      rod.angle_std and rod.speed_std.
+  choose_hands(team_rods, ball, field, n_hands)
+      → set of rod indices to control (up to n_hands).
+      Switching to a new rod incurs SWITCH_DELAY on that rod.
 
-  choose_position(rod, ball_x, ball_y, field)
-      → y_offset
-      Called for EVERY rod of this team each turn (including non-possessing
-      rods). Returns the desired sliding offset so rods can defend or set up
-      for passes.
+  choose_targets(controlled_rods, ball, field)
+      → dict of {rod_idx: (target_y, target_x)} for each controlled rod.
+      Rods move toward target_y at MOVEMENT_SPEED. target_x sets rotation.
 
-Both methods are called before any dice are rolled — that's what makes the
-decision simultaneous: attacker and all defenders commit at the same time.
-
-Adding a new strategy
----------------------
-Subclass Strategy and implement both methods. Register it in main.py or
-pass it directly to run_monte_carlo().
+  choose_hit(rod, player_idx, ball, field)
+      → None (don't hit) or (hit_vx, hit_vy) velocity to ADD to the ball.
+      Called only when a player's bounding box overlaps the ball.
 """
 
 from __future__ import annotations
@@ -29,177 +21,240 @@ from __future__ import annotations
 import math
 import random
 from abc import ABC, abstractmethod
+from typing import Optional
+
+import numpy as np
 
 import config
-from field import Field, Rod
+from field import BallState, Field, Rod
 
 
 class Strategy(ABC):
 
     @abstractmethod
-    def choose_shot(
+    def choose_hands(
         self,
-        possessing_rod: Rod,
-        ball_y: float,
+        team_rods: list[tuple[int, Rod]],
+        ball: BallState,
         field: Field,
-    ) -> tuple[float, float]:
+        n_hands: int,
+    ) -> set[int]:
         """
-        Decide a shot.
+        Pick which rods (up to n_hands) this team controls this tick.
 
-        Parameters
-        ----------
-        possessing_rod : the rod that currently has the ball.
-        ball_y         : current ball y-position (= possessing player's center).
-        field          : full field (read-only — do not mutate rod offsets here).
-
-        Returns
-        -------
-        (target_angle_rad, target_speed_cm_per_s)
+        Returns a set of global rod indices.
         """
 
     @abstractmethod
-    def choose_position(
+    def choose_targets(
+        self,
+        controlled_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+    ) -> dict[int, tuple[float, float]]:
+        """
+        For each controlled rod, decide where to move.
+
+        Returns {rod_idx: (target_y_offset, target_x_offset)}.
+        """
+
+    @abstractmethod
+    def choose_hit(
         self,
         rod: Rod,
-        ball_x: float,
-        ball_y: float,
+        player_idx: int,
+        ball: BallState,
         field: Field,
-    ) -> tuple[float, float]:
+    ) -> Optional[tuple[float, float]]:
         """
-        Decide where to slide `rod`.
+        Decide whether to hit the ball when a player overlaps it.
 
         Parameters
         ----------
-        rod         : the rod being positioned.
-        ball_x/y    : current ball position (use for tracking / anticipation).
+        rod         : the rod with the overlapping player.
+        player_idx  : which player on the rod overlaps.
+        ball        : current ball state (position + velocity).
         field       : full field (read-only).
 
         Returns
         -------
-        (y_offset, x_offset) — both will be clamped by Rod.set_offset / set_x_offset.
+        None                — don't hit (let ball pass / tilt feet up).
+        (hit_vx, hit_vy)    — velocity to ADD to the ball.
         """
 
 
 # ---------------------------------------------------------------------------
-# AimAtGoalCenter
+# SmackBall — simple baseline
 # ---------------------------------------------------------------------------
 
-class AimAtGoalCenter(Strategy):
+class SmackBall(Strategy):
     """
-    Always aim at the exact center of the opponent's goal.
+    Simple reactive strategy:
+    - Hands: hold the rods closest to the ball in x.
+    - Positioning: slide each rod's center toward ball_y.
+    - Hitting: always smack the ball toward the opponent's goal at max speed.
 
-    Shooting: angle = atan2(goal_center_y - ball_y, goal_x - rod_x)
-              speed = MAX_SPEED
-
-    Defending/receiving: slide the rod's middle player to track ball_y.
-    This keeps a defender in front of the most likely shot line and also
-    positions own-team rods to receive a straight pass.
+    The hit adds velocity toward the goal center with noise from skill/consistency.
     """
 
-    def choose_shot(
+    def choose_hands(
         self,
-        possessing_rod: Rod,
-        ball_y: float,
+        team_rods: list[tuple[int, Rod]],
+        ball: BallState,
         field: Field,
-    ) -> tuple[float, float]:
-        goal = field.goal_for_attacker(possessing_rod.team)
-        goal_center_y = (goal.y_min + goal.y_max) / 2
+        n_hands: int,
+    ) -> set[int]:
+        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
+        return {idx for idx, _ in sorted_rods[:n_hands]}
 
-        dx = goal.x - possessing_rod.x
-        dy = goal_center_y - ball_y
-        target_angle = math.atan2(dy, dx)
+    def choose_targets(
+        self,
+        controlled_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+    ) -> dict[int, tuple[float, float]]:
+        targets = {}
+        for rod_idx, rod in controlled_rods:
+            # Slide rod center toward ball_y
+            target_y = ball.y - field.depth / 2
+            targets[rod_idx] = (target_y, 0.0)
+        return targets
 
-        return target_angle, config.MAX_SPEED
-
-    def choose_position(
+    def choose_hit(
         self,
         rod: Rod,
-        ball_x: float,
-        ball_y: float,
+        player_idx: int,
+        ball: BallState,
         field: Field,
-    ) -> tuple[float, float]:
-        # Align the middle player's center with ball_y.
-        # Middle player's base position is always FIELD_HEIGHT / 2 (by construction),
-        # so the required offset is simply ball_y - FIELD_HEIGHT/2.
-        return ball_y - field.height / 2, 0.0
+    ) -> Optional[tuple[float, float]]:
+        # Always hit — aim at goal center
+        goal = field.goal_for_attacker(rod.team)
+        goal_cy = (goal.y_min + goal.y_max) / 2
+
+        player_y = rod.player_positions[player_idx]
+        dx = goal.x - rod.x
+        dy = goal_cy - player_y
+
+        # Normalize to a unit direction, then scale to desired hit speed
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist < 1e-6:
+            return None
+        ux, uy = dx / dist, dy / dist
+
+        # Intended speed with noise
+        intended_speed = config.BALL_MAX_SPEED * 0.8
+        actual_speed = float(np.random.normal(intended_speed, rod.speed_std))
+        actual_speed = max(10.0, min(config.BALL_MAX_SPEED, actual_speed))
+
+        # Add angle noise
+        intended_angle = math.atan2(uy, ux)
+        actual_angle = float(np.random.normal(intended_angle, rod.angle_std))
+
+        hit_vx = actual_speed * math.cos(actual_angle)
+        hit_vy = actual_speed * math.sin(actual_angle)
+
+        return (hit_vx, hit_vy)
 
 
 # ---------------------------------------------------------------------------
-# AimAtRandomGoalPoint
+# AimAtGap — scans for defensive gaps before hitting
 # ---------------------------------------------------------------------------
 
-class AimAtRandomGoalPoint(Strategy):
+class AimAtGap(Strategy):
     """
-    Shoots at a uniformly random y-position inside the goal opening each turn.
-
-    Models a player who knows the goal location but picks an unpredictable
-    target, making it harder for a simple tracking defender to anticipate.
-
-    Defending: same ball-tracking position as AimAtGoalCenter.
+    Like SmackBall but aims through the largest gap in the nearest opponent rod
+    between the ball and the goal.
     """
 
-    def choose_shot(
+    def choose_hands(
         self,
-        possessing_rod: Rod,
-        ball_y: float,
+        team_rods: list[tuple[int, Rod]],
+        ball: BallState,
         field: Field,
+        n_hands: int,
+    ) -> set[int]:
+        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
+        return {idx for idx, _ in sorted_rods[:n_hands]}
+
+    def choose_targets(
+        self,
+        controlled_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+    ) -> dict[int, tuple[float, float]]:
+        targets = {}
+        for rod_idx, rod in controlled_rods:
+            target_y = ball.y - field.depth / 2
+            targets[rod_idx] = (target_y, 0.0)
+        return targets
+
+    def _find_gap_target(
+        self, rod: Rod, ball: BallState, field: Field
     ) -> tuple[float, float]:
-        goal = field.goal_for_attacker(possessing_rod.team)
-        target_y = random.uniform(goal.y_min, goal.y_max)
+        """Find the (aim_x, aim_y) through the largest gap in the nearest defender."""
+        team = rod.team
+        goal = field.goal_for_attacker(team)
 
-        dx = goal.x - possessing_rod.x
-        dy = target_y - ball_y
-        target_angle = math.atan2(dy, dx)
+        if team == 0:
+            opp_rods = [r for r in field.rods
+                        if r.team != team and r.x > rod.x]
+            opp_rods.sort(key=lambda r: r.x)
+        else:
+            opp_rods = [r for r in field.rods
+                        if r.team != team and r.x < rod.x]
+            opp_rods.sort(key=lambda r: -r.x)
 
-        return target_angle, config.MAX_SPEED
+        if not opp_rods:
+            return goal.x, (goal.y_min + goal.y_max) / 2
 
-    def choose_position(
+        nearest = opp_rods[0]
+        positions = sorted(nearest.player_positions)
+        reach = nearest.y_reach
+
+        gaps: list[tuple[float, float]] = []
+        first_top = positions[0] - reach
+        if first_top > 0:
+            gaps.append((0.0, first_top))
+        for i in range(len(positions) - 1):
+            lo = positions[i] + reach
+            hi = positions[i + 1] - reach
+            if hi > lo:
+                gaps.append((lo, hi))
+        last_bot = positions[-1] + reach
+        if last_bot < field.depth:
+            gaps.append((last_bot, field.depth))
+
+        if gaps:
+            best = max(gaps, key=lambda g: g[1] - g[0])
+            return nearest.x, (best[0] + best[1]) / 2
+
+        return goal.x, (goal.y_min + goal.y_max) / 2
+
+    def choose_hit(
         self,
         rod: Rod,
-        ball_x: float,
-        ball_y: float,
+        player_idx: int,
+        ball: BallState,
         field: Field,
-    ) -> tuple[float, float]:
-        return ball_y - field.height / 2, 0.0
+    ) -> Optional[tuple[float, float]]:
+        aim_x, aim_y = self._find_gap_target(rod, ball, field)
 
+        player_y = rod.player_positions[player_idx]
+        dx = aim_x - rod.x
+        dy = aim_y - player_y
 
-# ---------------------------------------------------------------------------
-# RandomStrategy
-# ---------------------------------------------------------------------------
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist < 1e-6:
+            return None
 
-class RandomStrategy(Strategy):
-    """
-    Shoots in a random direction within ±max_spread of the forward direction.
-    Positions rods randomly within their valid range.
+        intended_speed = config.BALL_MAX_SPEED * 0.8
+        actual_speed = float(np.random.normal(intended_speed, rod.speed_std))
+        actual_speed = max(10.0, min(config.BALL_MAX_SPEED, actual_speed))
 
-    Useful as a lower-bound baseline: any real strategy should beat Random.
+        intended_angle = math.atan2(dy, dx)
+        actual_angle = float(np.random.normal(intended_angle, rod.angle_std))
 
-    Parameters
-    ----------
-    max_spread : half-width of the angle range (radians). Default = 45°.
-    """
-
-    def __init__(self, max_spread: float = math.radians(45)):
-        self.max_spread = max_spread
-
-    def choose_shot(
-        self,
-        possessing_rod: Rod,
-        ball_y: float,
-        field: Field,
-    ) -> tuple[float, float]:
-        # Forward direction: 0 for Team 0 (rightward), π for Team 1 (leftward)
-        base_angle = 0.0 if possessing_rod.team == 0 else math.pi
-        angle = base_angle + random.uniform(-self.max_spread, self.max_spread)
-        speed = random.uniform(config.MIN_SPEED, config.MAX_SPEED)
-        return angle, speed
-
-    def choose_position(
-        self,
-        rod: Rod,
-        ball_x: float,
-        ball_y: float,
-        field: Field,
-    ) -> tuple[float, float]:
-        lo, hi = rod.slide_range
-        return random.uniform(lo, hi), 0.0
+        return (
+            actual_speed * math.cos(actual_angle),
+            actual_speed * math.sin(actual_angle),
+        )

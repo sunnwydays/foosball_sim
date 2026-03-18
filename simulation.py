@@ -1,30 +1,22 @@
 """
-simulation.py — Single-point simulation engine.
+simulation.py — Time-stepped foosball simulation engine.
 
-simulate_point() runs one foosball point from kickoff to either a goal,
-a dead ball, or the turn limit. It is the atomic unit that monte_carlo.py
-calls thousands of times.
+simulate_point() runs one point as a sequence of ticks (dt = 1/FPS).
 
-Turn structure (per turn)
--------------------------
-1. Identify the possessing rod and its team (attacker) + the other team (defender).
-2. SIMULTANEOUS decisions — both happen before any randomness:
-     a. Attacker strategy: choose_shot()     → (target_angle, target_speed)
-     b. All rods (both teams): choose_position() → set y_offset
-3. Sample the actual shot from normal distributions:
-     actual_angle = N(target_angle, rod.angle_std)   [rod skill controls tightness]
-     actual_speed = N(target_speed, rod.speed_std)   [rod consistency controls tightness]
-4. Trace the ball via physics.trace_ball().
-5. Interpret result:
-     - 'goal'       → point ends, return winner
-     - 'possession' → update ball state, snap to player center, next turn
-     - 'dead'       → point ends, no winner
+Tick order
+----------
+1. Decrement timers (reaction, switch)
+2. Strategy: choose_hands → choose_targets (respecting reaction lockout)
+3. Move rods toward targets (step_movement)
+4. Move ball (step_ball: velocity, friction, wall bounces)
+5. Detect player-ball overlaps → strategy: choose_hit
+6. Apply hits (add velocity, set reaction timer, update last-hit tracking)
+7. Check goal / time limit
 
-Why simultaneous?
------------------
-In real foosball, you commit to a shot and a defensive position at the same
-time — you don't see the opponent's choice before responding. The simultaneous
-model captures this: defenders must anticipate, not react.
+Frame recording
+---------------
+If record=True, every tick's state is appended to a frame list for
+visualization or replay.
 """
 
 from __future__ import annotations
@@ -36,141 +28,278 @@ from typing import Optional
 import numpy as np
 
 import config
-from field import Field, BallState, TraceResult
-from physics import trace_ball
+from field import Field, BallState, TeamState
+from physics import step_ball, find_overlapping_players
 from strategy import Strategy
 
 
 # ---------------------------------------------------------------------------
-# Result dataclass
+# Result / Frame dataclasses
 # ---------------------------------------------------------------------------
+
+@dataclass
+class Frame:
+    """Snapshot of the game state at one tick (for replay / visualization)."""
+    tick:       int
+    time:       float
+    ball_x:     float
+    ball_y:     float
+    ball_vx:    float
+    ball_vy:    float
+    rod_ys:     list[float]          # y_offset per rod
+    rod_xs:     list[float]          # x_offset per rod
+    rod_ctrl:   list[bool]           # controlled? per rod
+    event:      Optional[str] = None # 'hit', 'goal:0', 'goal:1', etc.
+
 
 @dataclass
 class PointResult:
     """
     The outcome of a single simulated point.
 
-    winner     : 0 or 1 (team that scored), or None (dead ball / turn limit).
-    turns      : number of possession changes before the point ended.
-    trajectory : list of (x, y) positions — one entry per possession transfer,
-                 starting from the kickoff position. Useful for visualisation
-                 and debugging (e.g. heatmaps of where interceptions happen).
+    winner : 0 or 1 (team that scored), or None (time limit / dead ball).
+    ticks  : number of ticks elapsed.
+    time   : game time in seconds.
+    frames : list of Frame snapshots (only if record=True).
     """
-    winner:     Optional[int]
-    turns:      int
-    trajectory: list[tuple[float, float]] = dc_field(default_factory=list)
+    winner: Optional[int]
+    ticks:  int
+    time:   float
+    frames: list[Frame] = dc_field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
-# Core simulation function
+# Core simulation
 # ---------------------------------------------------------------------------
 
 def simulate_point(
-    field:            Field,
-    strategies:       dict[int, Strategy],
-    starting_rod_idx: int,
+    field:       Field,
+    strategies:  dict[int, Strategy],
+    kickoff_team: int = 0,
+    n_hands:     int = config.N_HANDS,
+    record:      bool = False,
+    seed:        Optional[int] = None,
 ) -> PointResult:
     """
-    Simulate one foosball point.
+    Simulate one foosball point with time-stepped physics.
 
     Parameters
     ----------
-    field            : Field with rods at whatever y_offsets they currently have.
-                       Rod offsets are mutated in-place each turn.
-    strategies       : {team_id: Strategy} — one strategy per team.
-    starting_rod_idx : which rod begins with possession (kickoff rod).
+    field        : Field instance (rods will be mutated in-place).
+    strategies   : {team_id: Strategy} — one per team.
+    kickoff_team : which team kicks off (0 or 1).
+    n_hands      : max rods each team can control simultaneously.
+    record       : if True, record a Frame per tick for visualization.
+    seed         : optional RNG seed for reproducibility.
 
     Returns
     -------
     PointResult
     """
-    # Ball starts at the kickoff rod's x-position, vertically centered
-    kickoff_rod = field.rods[starting_rod_idx]
+    if seed is not None:
+        np.random.seed(seed)
+
+    dt = config.DT
+
+    # --- Initialize state ---
+    field.reset()
+
+    kickoff_rod_idx = config.KICKOFF_ROD[kickoff_team]
+    kickoff_rod = field.rods[kickoff_rod_idx]
+
     ball = BallState(
-        x                  = kickoff_rod.x,
-        y                  = field.height / 2,
-        possessing_rod_idx = starting_rod_idx,
+        x  = kickoff_rod.x,
+        y  = field.depth / 2,
+        vx = 0.0,
+        vy = 0.0,
     )
 
-    trajectory: list[tuple[float, float]] = [(ball.x, ball.y)]
+    team_states = {
+        0: TeamState(),
+        1: TeamState(),
+    }
 
-    for turn in range(config.MAX_TURNS):
+    # Double-hit tracking: (rod_idx, player_idx) of last hit
+    last_hit: Optional[tuple[int, int]] = None
 
-        poss_rod      = field.rods[ball.possessing_rod_idx]
-        attacker_team = poss_rod.team
-        defender_team = 1 - attacker_team
+    frames: list[Frame] = []
 
-        attacker_strategy = strategies[attacker_team]
-        defender_strategy = strategies[defender_team]
+    # --- Pre-game: initial hand assignment (no switch delay) ---
+    for team in (0, 1):
+        strat = strategies[team]
+        ts    = team_states[team]
+        team_rods = field.rods_for_team(team)
+        initial_hands = strat.choose_hands(team_rods, ball, field, n_hands)
+        for rod_idx in initial_hands:
+            field.rods[rod_idx].controlled = True
+            # No switch_timer — starting positions, not a mid-game switch
+        ts.active_rods = initial_hands
 
-        # ------------------------------------------------------------------
-        # Step 1 — Simultaneous decisions
-        # ------------------------------------------------------------------
+        # Set initial targets
+        controlled = [(i, field.rods[i]) for i in initial_hands]
+        targets = strat.choose_targets(controlled, ball, field)
+        for rod_idx, (ty, tx) in targets.items():
+            rod = field.rods[rod_idx]
+            rod.target_y = ty
+            rod.set_x_offset(tx)
 
-        # Attacker picks a shot
-        target_angle, target_speed = attacker_strategy.choose_shot(
-            poss_rod, ball.y, field
-        )
+    # --- Tick loop ---
+    for tick in range(config.MAX_TICKS):
+        game_time = tick * dt
+        event: Optional[str] = None
 
-        # ALL rods (both teams) choose their y-positions at the same time.
-        # Own-team non-possessing rods position to receive passes;
-        # opponent rods position to intercept.
+        # --------------------------------------------------------------
+        # 1. Decrement timers
+        # --------------------------------------------------------------
+        for ts in team_states.values():
+            ts.tick(dt)
+
+        # --------------------------------------------------------------
+        # 2. Strategy decisions: hands + targets
+        # --------------------------------------------------------------
+        for team in (0, 1):
+            strat = strategies[team]
+            ts    = team_states[team]
+            team_rods = field.rods_for_team(team)
+
+            # Choose which rods to hold
+            desired_hands = strat.choose_hands(team_rods, ball, field, n_hands)
+
+            # Determine which rods are newly grabbed vs kept
+            prev_hands = ts.active_rods
+            released   = prev_hands - desired_hands
+            acquired   = desired_hands - prev_hands
+
+            # Released rods stop immediately
+            for rod_idx in released:
+                rod = field.rods[rod_idx]
+                rod.controlled = False
+                rod.vy = 0.0
+
+            # Acquired rods get switch delay
+            for rod_idx in acquired:
+                rod = field.rods[rod_idx]
+                rod.controlled = True
+                rod.switch_timer = config.SWITCH_DELAY
+
+            # Kept rods stay controlled
+            for rod_idx in (desired_hands & prev_hands):
+                field.rods[rod_idx].controlled = True
+
+            ts.active_rods = desired_hands
+
+            # Choose targets (only if not in reaction lockout)
+            if not ts.reacting:
+                controlled = [(i, field.rods[i]) for i in desired_hands]
+                targets = strat.choose_targets(controlled, ball, field)
+                for rod_idx, (ty, tx) in targets.items():
+                    rod = field.rods[rod_idx]
+                    rod.target_y = ty
+                    rod.set_x_offset(tx)
+
+            # If reacting: rods keep moving toward their previous target_y
+            # (no new commands issued — this is the reaction time lockout)
+
+        # --------------------------------------------------------------
+        # 3. Move rods
+        # --------------------------------------------------------------
         for rod in field.rods:
-            team_strategy = strategies[rod.team]
-            desired_y, desired_x = team_strategy.choose_position(
-                rod, ball.x, ball.y, field
-            )
-            rod.set_offset(desired_y)
-            rod.set_x_offset(desired_x)
+            rod.step_movement(dt)
 
-        # ------------------------------------------------------------------
-        # Step 2 — Sample actual shot from distributions
-        #
-        # The normal distribution models human imprecision:
-        #   angle_std ∝ 1/skill       (tight = skilled, wide = beginner)
-        #   speed_std ∝ 1/consistency (tight = consistent, wide = erratic)
-        # ------------------------------------------------------------------
-        actual_angle = float(np.random.normal(target_angle, poss_rod.angle_std))
-        actual_speed = float(np.random.normal(target_speed, poss_rod.speed_std))
-        actual_speed = max(config.MIN_SPEED, actual_speed)   # clamp to valid range
+        # --------------------------------------------------------------
+        # 4. Move ball
+        # --------------------------------------------------------------
+        ball_result = step_ball(ball, field, dt)
 
-        # ------------------------------------------------------------------
-        # Step 3 — Trace ball trajectory
-        # ------------------------------------------------------------------
-        result: TraceResult = trace_ball(ball.x, ball.y, actual_angle, field)
-
-        # ------------------------------------------------------------------
-        # Step 4 — Interpret result
-        # ------------------------------------------------------------------
-        if result.kind == 'goal':
+        # Check for goal
+        if ball_result.startswith('goal:'):
+            winner = int(ball_result.split(':')[1])
+            if record:
+                frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}'))
             return PointResult(
-                winner     = result.scoring_team,
-                turns      = turn + 1,
-                trajectory = trajectory,
+                winner = winner,
+                ticks  = tick + 1,
+                time   = game_time + dt,
+                frames = frames,
             )
 
-        elif result.kind == 'possession':
-            # Snap ball to the intercepting player's center for a clean origin
-            new_rod    = field.rods[result.rod_idx]
-            player_idx = new_rod.player_at_y(result.y)
-            if player_idx is not None:
-                snapped_y = new_rod.player_positions[player_idx]
-            else:
-                snapped_y = result.y   # fallback (shouldn't happen)
+        # --------------------------------------------------------------
+        # 5. Detect overlaps + strategy decides whether to hit
+        # --------------------------------------------------------------
+        overlaps = find_overlapping_players(ball, field)
 
-            ball = BallState(
-                x                  = result.x,
-                y                  = snapped_y,
-                possessing_rod_idx = result.rod_idx,
-            )
-            trajectory.append((ball.x, ball.y))
+        for rod_idx, player_idx in overlaps:
+            rod  = field.rods[rod_idx]
+            team = rod.team
 
-        else:   # 'dead'
-            return PointResult(
-                winner     = None,
-                turns      = turn + 1,
-                trajectory = trajectory,
-            )
+            # Double-hit check: same player can't hit twice in a row
+            # unless ball has stopped (which resets last_hit)
+            if last_hit == (rod_idx, player_idx):
+                continue
 
-    # Reached MAX_TURNS without resolution
-    return PointResult(winner=None, turns=config.MAX_TURNS, trajectory=trajectory)
+            # Ask strategy whether to hit
+            hit_vel = strategies[team].choose_hit(rod, player_idx, ball, field)
+
+            if hit_vel is not None:
+                hvx, hvy = hit_vel
+
+                # Add velocity to ball
+                ball.vx += hvx
+                ball.vy += hvy
+
+                # Clamp to max speed
+                speed = ball.speed
+                if speed > config.BALL_MAX_SPEED:
+                    factor = config.BALL_MAX_SPEED / speed
+                    ball.vx *= factor
+                    ball.vy *= factor
+
+                # Set opponent's reaction timer
+                opp_team = 1 - team
+                team_states[opp_team].reaction_timer = config.REACTION_TIME
+
+                # Update last-hit tracking
+                last_hit = (rod_idx, player_idx)
+                event = 'hit'
+
+                # Only one hit per tick (first overlap wins)
+                break
+
+        # Reset last_hit if ball stopped
+        if ball.stopped:
+            last_hit = None
+
+        # --------------------------------------------------------------
+        # 6. Record frame
+        # --------------------------------------------------------------
+        if record:
+            frames.append(_make_frame(tick, game_time, ball, field, event))
+
+    # --- Time limit reached ---
+    return PointResult(
+        winner = None,
+        ticks  = config.MAX_TICKS,
+        time   = config.MAX_GAME_TIME,
+        frames = frames,
+    )
+
+
+def _make_frame(
+    tick: int,
+    time: float,
+    ball: BallState,
+    field: Field,
+    event: Optional[str],
+) -> Frame:
+    return Frame(
+        tick     = tick,
+        time     = time,
+        ball_x   = ball.x,
+        ball_y   = ball.y,
+        ball_vx  = ball.vx,
+        ball_vy  = ball.vy,
+        rod_ys   = [r.y_offset for r in field.rods],
+        rod_xs   = [r.x_offset for r in field.rods],
+        rod_ctrl = [r.controlled for r in field.rods],
+        event    = event,
+    )
