@@ -44,8 +44,8 @@ class Rod:
 
     Skill parameters
     ----------------
-    skill       : [0, 1] — controls shot angle std dev.
-    consistency : [0, 1] — controls shot speed std dev.
+    accuracy          : [0, 1] — controls shot angle std dev.
+    power_consistency : [0, 1] — controls shot speed std dev.
     """
 
     def __init__(
@@ -53,8 +53,8 @@ class Rod:
         x: float,
         team: int,
         n_players: int,
-        skill: float = 0.5,
-        consistency: float = 0.5,
+        accuracy: float = 0.5,
+        power_consistency: float = 0.5,
         width: float = config.PLAYER_WIDTH,
         thickness: float = config.PLAYER_THICKNESS,
         rod_x_reach: float = config.ROD_X_REACH,
@@ -62,8 +62,8 @@ class Rod:
         self._base_x     = x
         self.team        = team
         self.n_players   = n_players
-        self.skill       = skill
-        self.consistency = consistency
+        self.accuracy          = accuracy
+        self.power_consistency = power_consistency
         self.width      = width
         self.thickness   = thickness
         self.rod_x_reach = rod_x_reach
@@ -116,18 +116,18 @@ class Rod:
 
     @property
     def angle_std(self) -> float:
-        """Shot angle std dev (radians) derived from skill."""
+        """Shot angle std dev (radians) derived from accuracy."""
         return (
             config.MAX_ANGLE_STD
-            + self.skill * (config.MIN_ANGLE_STD - config.MAX_ANGLE_STD)
+            + self.accuracy * (config.MIN_ANGLE_STD - config.MAX_ANGLE_STD)
         )
 
     @property
     def speed_std(self) -> float:
-        """Speed std dev (cm/s) derived from consistency."""
+        """Speed std dev (cm/s) derived from power_consistency."""
         return (
             config.MAX_SPEED_STD
-            + self.consistency * (config.MIN_SPEED_STD - config.MAX_SPEED_STD)
+            + self.power_consistency * (config.MIN_SPEED_STD - config.MAX_SPEED_STD)
         )
 
     # ------------------------------------------------------------------

@@ -94,7 +94,7 @@ class SmackBall(Strategy):
     - Positioning: slide each rod's center toward ball_y.
     - Hitting: always smack the ball toward the opponent's goal at max speed.
 
-    The hit adds velocity toward the goal center with noise from skill/consistency.
+    The hit adds velocity toward the goal center with noise from accuracy/power_consistency.
     """
 
     def choose_hands(

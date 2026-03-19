@@ -11,20 +11,20 @@ import matplotlib.pyplot as plt
 
 # ---- Settings (edit these) ------------------------------------------------
 
-SEED        = 1         # RNG seed (change for different games, None for random)
-KICKOFF     = 0         # which team kicks off (0 or 1)
+SEED        = 4         # RNG seed (change for different games, None for random)
+KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 SHOW_REACH  = True      # draw player hitbox rectangles
 SAVE_GIF    = True      # save to output/replay.gif
-SHOW_LIVE   = False     # open a matplotlib window to watch live
+SHOW_LIVE   = True     # open a matplotlib window to watch live
 
 # Team 0 strategy
 TEAM_0 = "SmackBall"    # "SmackBall" or "AimAtGap"
 # Team 1 strategy
-TEAM_1 = "SmackBall"
+TEAM_1 = "AimAtGap"
 
 # Skill overrides (None = use defaults)
-TEAM_0_SKILL = None     # e.g. (0.9, 0.9) for (skill, consistency)
+TEAM_0_SKILL = None     # e.g. (0.9, 0.9) for (accuracy, power_consistency)
 TEAM_1_SKILL = None     # e.g. (0.2, 0.2)
 
 # ---------------------------------------------------------------------------
@@ -55,11 +55,11 @@ def main():
     if TEAM_0_SKILL:
         for rod in field.rods:
             if rod.team == 0:
-                rod.skill, rod.consistency = TEAM_0_SKILL
+                rod.accuracy, rod.power_consistency = TEAM_0_SKILL
     if TEAM_1_SKILL:
         for rod in field.rods:
             if rod.team == 1:
-                rod.skill, rod.consistency = TEAM_1_SKILL
+                rod.accuracy, rod.power_consistency = TEAM_1_SKILL
 
     strats = {
         0: STRATEGIES[TEAM_0](),

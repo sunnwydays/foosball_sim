@@ -52,9 +52,9 @@ def main() -> None:
     skilled_field = Field()
     for rod in skilled_field.rods:
         if rod.team == 0:
-            rod.skill, rod.consistency = 0.9, 0.9
+            rod.accuracy, rod.power_consistency = 0.9, 0.9
         else:
-            rod.skill, rod.consistency = 0.2, 0.2
+            rod.accuracy, rod.power_consistency = 0.2, 0.2
 
     run_experiment(
         "Exp 3 - Skill gap: T0 (0.9) vs T1 (0.2), both SmackBall",

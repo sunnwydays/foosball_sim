@@ -5,7 +5,7 @@ All physical dimensions are in centimeters (cm).
 All speeds are in cm/s.
 All times are in seconds.
 All angles are in radians.
-Skill/consistency values are in [0, 1].
+Accuracy/power_consistency values are in [0, 1].
 """
 
 import math
@@ -50,7 +50,7 @@ KICKOFF_ROD = {0: 3, 1: 4}
 # Player physical parameters
 # ---------------------------------------------------------------------------
 PLAYER_WIDTH     = 2.5   # cm — full width of a player figure (y direction)
-PLAYER_THICKNESS = 1.4   # cm — full thickness of a player figure (x direction)
+PLAYER_THICKNESS = 1.8   # cm — full thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
@@ -72,16 +72,16 @@ STOP_THRESHOLD =  2.0     # cm/s — below this, ball counts as stopped
 BALL_MAX_SPEED = 200.0    # cm/s — absolute cap on ball speed
 
 # ---------------------------------------------------------------------------
-# Shot noise — maps skill/consistency (0–1) to distribution std devs
+# Shot noise — maps accuracy/power_consistency (0–1) to distribution std devs
 #
-#   skill=0  → MAX_ANGLE_STD  (wild, unpredictable shots)
-#   skill=1  → MIN_ANGLE_STD  (tight, precise shots)
+#   accuracy=0  → MAX_ANGLE_STD  (wild, unpredictable shots)
+#   accuracy=1  → MIN_ANGLE_STD  (tight, precise shots)
 #
-#   consistency=0  → MAX_SPEED_STD  (very variable speed)
-#   consistency=1  → MIN_SPEED_STD  (very consistent speed)
+#   power_consistency=0  → MAX_SPEED_STD  (very variable speed)
+#   power_consistency=1  → MIN_SPEED_STD  (very consistent speed)
 # ---------------------------------------------------------------------------
-MIN_ANGLE_STD = math.radians(3)    #  ~3° for near-perfect skill
-MAX_ANGLE_STD = math.radians(35)   # ~35° for low skill
+MIN_ANGLE_STD = math.radians(3)    #  ~3° for near-perfect accuracy
+MAX_ANGLE_STD = math.radians(35)   # ~35° for low accuracy
 
 MIN_SPEED_STD =  2.0   # cm/s
 MAX_SPEED_STD = 25.0   # cm/s
@@ -92,7 +92,7 @@ MAX_SPEED_STD = 25.0   # cm/s
 MOVEMENT_SPEED = 80.0     # cm/s — max rod slide speed toward target_y
 
 # ---------------------------------------------------------------------------
-# Timing / skill parameters (defaults — can be overridden per team)
+# Timing parameters (defaults — can be overridden per team)
 # ---------------------------------------------------------------------------
 REACTION_TIME  = 0.15     # seconds — delay before opponent can change direction after a hit
 SWITCH_DELAY   = 0.10     # seconds — delay when switching a hand to a new rod
