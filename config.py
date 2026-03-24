@@ -67,9 +67,9 @@ MAX_TICKS      = int(MAX_GAME_TIME * FPS)
 # ---------------------------------------------------------------------------
 # Ball physics
 # ---------------------------------------------------------------------------
-FRICTION       = 15.0     # cm/s² — constant deceleration (ball slows each tick)
+FRICTION       = 10.0     # cm/s² — constant deceleration (ball slows each tick)
 STOP_THRESHOLD =  2.0     # cm/s — below this, ball counts as stopped
-BALL_MAX_SPEED = 200.0    # cm/s — absolute cap on ball speed
+BALL_MAX_SPEED = 220.0    # cm/s — absolute cap on ball speed
 
 # ---------------------------------------------------------------------------
 # Shot noise — maps accuracy/power_consistency (0–1) to distribution std devs

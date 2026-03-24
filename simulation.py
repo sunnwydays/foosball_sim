@@ -49,6 +49,7 @@ class Frame:
     rod_ys:     list[float]          # y_offset per rod
     rod_xs:     list[float]          # x_offset per rod
     rod_ctrl:   list[bool]           # controlled? per rod
+    ups:        list[bool]           # up (flipped) state per rod
     event:      Optional[str] = None # 'hit', 'goal:0', 'goal:1', etc.
 
 
@@ -155,9 +156,8 @@ def simulate_point(
             ts.tick(dt)
 
         # --------------------------------------------------------------
-        # 2. Strategy decisions: hands + targets
+        # 2. Strategy decisions: hands + targets + up/down
         # --------------------------------------------------------------
-        # TODO: decide whether or not to have players up
         for team in (0, 1):
             strat = strategies[team]
             ts    = team_states[team]
@@ -200,6 +200,10 @@ def simulate_point(
 
             # If reacting: rods keep moving toward their previous target_y
             # (no new commands issued — this is the reaction time lockout)
+
+            # Up/down decisions (always available, even during reaction)
+            for rod_idx, rod in team_rods:
+                rod.up = strat.choose_up(rod, ball, field)
 
         # --------------------------------------------------------------
         # 3. Move rods
@@ -302,5 +306,6 @@ def _make_frame(
         rod_ys   = [r.y_offset for r in field.rods],
         rod_xs   = [r.x_offset for r in field.rods],
         rod_ctrl = [r.controlled for r in field.rods],
+        ups      = [r.up for r in field.rods],
         event    = event,
     )

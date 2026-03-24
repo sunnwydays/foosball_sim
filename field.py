@@ -191,6 +191,7 @@ class Rod:
         self.vy           = 0.0
         self.controlled   = False
         self.switch_timer = 0.0
+        self.up           = False
 
     def __repr__(self) -> str:
         ctrl = "H" if self.controlled else "-"

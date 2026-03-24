@@ -69,11 +69,13 @@ def _draw_rods_from_offsets(
     rod_ys: list[float],
     rod_xs: list[float],
     rod_ctrl: list[bool],
+    rod_ups: list[bool],
     show_reach: bool = False,
 ) -> None:
     """Draw rods using explicit offset arrays (from a Frame)."""
     for i, rod in enumerate(field.rods):
         color = TEAM_COLOR[rod.team]
+        alpha = 0.2 if rod_ups[i] else 1.0
 
         # Apply frame offsets temporarily
         orig_y, orig_x = rod.y_offset, rod.x_offset
@@ -91,7 +93,7 @@ def _draw_rods_from_offsets(
             player_rect = patches.Rectangle(
                 (rod.x - rod.thickness / 2, py - rod.width / 2),
                 rod.thickness, rod.width,
-                linewidth=0, facecolor=color, zorder=3,
+                linewidth=0, facecolor=color, alpha=alpha, zorder=3,
             )
             ax.add_patch(player_rect)
 
@@ -135,8 +137,8 @@ def draw_field(
     rod_ys = [r.y_offset for r in field.rods]
     rod_xs = [r.x_offset for r in field.rods]
     rod_ctrl = [r.controlled for r in field.rods]
-    # TODO: visualize rod upside-down state
-    _draw_rods_from_offsets(ax, field, rod_ys, rod_xs, rod_ctrl, show_reach)
+    rod_ups = [r.up for r in field.rods]
+    _draw_rods_from_offsets(ax, field, rod_ys, rod_xs, rod_ctrl, rod_ups, show_reach)
 
     if ball_state is not None:
         ball_circle = plt.Circle(
@@ -202,7 +204,7 @@ def replay_point(
 
         _draw_base_field(ax, field)
         _draw_rods_from_offsets(
-            ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, show_reach
+            ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, fr.ups, show_reach
         )
 
         # Ball trail

@@ -301,3 +301,11 @@ class HardOffense(Strategy):
         aim_y = float(np.clip(np.random.normal(goal_cy, goal_half / 2), goal.y_min, goal.y_max))
         player_y = rod.player_positions[player_idx]
         return self._apply_hit(rod, aim_x, aim_y, player_y, config.BALL_MAX_SPEED * 0.8)
+
+    def choose_up(self, rod: Rod, ball: BallState, field: Field) -> bool:
+        """Flip rod up if ball is moving away from opponent's goal past this rod."""
+        # Ball moving toward own goal (retreating) and rod is ahead of ball
+        if rod.team == 0:
+            return ball.vx < 0 and rod.x > ball.x
+        else:
+            return ball.vx > 0 and rod.x < ball.x

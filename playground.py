@@ -14,7 +14,7 @@ from __future__ import annotations
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Slider, Button, CheckButtons
 
 from field import BallState, Field
 from physics import step_ball
@@ -101,6 +101,7 @@ def draw_mini_field(ax: plt.Axes, field: Field, ball_radius: float) -> None:
     # Rod and players
     rod = field.rods[0]
     color = TEAM_COLOR[rod.team]
+    player_alpha = 0.2 if rod.up else 1.0
 
     # Rod line
     ax.plot(
@@ -113,7 +114,7 @@ def draw_mini_field(ax: plt.Axes, field: Field, ball_radius: float) -> None:
         player_rect = patches.Rectangle(
             (rod.x - rod.thickness / 2, py - rod.width / 2),
             rod.thickness, rod.width,
-            linewidth=0, facecolor=color, zorder=3,
+            linewidth=0, facecolor=color, alpha=player_alpha, zorder=3,
         )
         ax.add_patch(player_rect)
 
@@ -157,6 +158,14 @@ def main() -> None:
     ax_rad  = next_slider_ax()
     ax_rodx = next_slider_ax()
     ax_rody = next_slider_ax()
+
+    ax_rodup = fig.add_axes([slider_x, top - row * slider_gap, slider_w, slider_h])
+    row += 1
+    chk_rodup = CheckButtons(ax_rodup, ["Rod Up"], [False])
+    ax_rodup.set_facecolor("#1a1a1a")
+    for label in chk_rodup.labels:
+        label.set_color("white")
+        label.set_fontsize(9)
 
     ax_btn  = fig.add_axes([slider_x, top - (row + 0.5) * slider_gap, slider_w, 0.05])
 
@@ -217,7 +226,9 @@ def main() -> None:
         _set_button_launch()
 
     def _current_field() -> Field:
-        return build_field(rod_x=s_rodx.val, rod_y_offset=s_rody.val)
+        f = build_field(rod_x=s_rodx.val, rod_y_offset=s_rody.val)
+        f.rods[0].up = chk_rodup.get_status()[0]
+        return f
 
     def _redraw_field_with_marker() -> None:
         """Redraw the field with the current ball start marker and velocity arrow."""
@@ -264,6 +275,7 @@ def main() -> None:
     s_vy.on_changed(on_slider_change)
     s_rodx.on_changed(on_slider_change)
     s_rody.on_changed(on_slider_change)
+    chk_rodup.on_clicked(lambda _: on_slider_change(None))
 
     def on_button(event) -> None:
         # Toggle: if running, stop and reset; if stopped, launch

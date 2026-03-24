@@ -83,6 +83,28 @@ def step_ball(
     # Clamp x
     ball.x = max(r, min(field.depth - r, ball.x))
 
+    # --- Player bounces (passive, wall-like) ---
+    for rod in field.rods:
+        if rod.up or rod.controlled:
+            continue
+        hw = rod.thickness / 2 + r   # half-width in x including ball radius
+        hh = rod.width / 2 + r       # half-height in y including ball radius
+        for py in rod.player_positions:
+            dx = ball.x - rod.x
+            dy = ball.y - py
+            if abs(dx) < hw and abs(dy) < hh:
+                # Determine which face the ball entered from using penetration depth
+                pen_x = hw - abs(dx)
+                pen_y = hh - abs(dy)
+                if pen_x < pen_y:
+                    # Push out in x
+                    ball.x = rod.x + (hw if dx > 0 else -hw)
+                    ball.vx = -ball.vx * restitution
+                else:
+                    # Push out in y
+                    ball.y = py + (hh if dy > 0 else -hh)
+                    ball.vy = -ball.vy * restitution
+
     # --- Friction ---
     speed = ball.speed
     if speed > 0:
