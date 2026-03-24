@@ -58,6 +58,7 @@ class Rod:
         width: float = config.PLAYER_WIDTH,
         thickness: float = config.PLAYER_THICKNESS,
         rod_x_reach: float = config.ROD_X_REACH,
+        field_width: float = config.FIELD_WIDTH,
     ):
         self._base_x     = x
         self.team        = team
@@ -71,6 +72,7 @@ class Rod:
         # --- Mutable positional state ---
         self.y_offset    = 0.0   # current y slide
         self.x_offset    = 0.0   # current x slide (rotation)
+        self.up          = False # can balls pass through the rod?
 
         # --- Continuous movement state ---
         self.target_y    = 0.0   # desired y_offset (rod moves toward this)
@@ -85,15 +87,15 @@ class Rod:
         self._x_slide_min = -rod_x_reach
         self._x_slide_max =  rod_x_reach
 
-        # Default player centers (equally spaced, centered on field depth)
-        spacing = config.FIELD_WIDTH / (n_players + 1)
+        # Default player centers (equally spaced across field_width)
+        spacing = field_width / (n_players + 1)
         self._base_positions: list[float] = [
             (i + 1) * spacing for i in range(n_players)
         ]
 
-        # Valid y offset range: outermost players must stay within [0, FIELD_WIDTH]
+        # Valid y offset range: outermost players must stay within [0, field_width]
         self._slide_min = -self._base_positions[0]  + width / 2
-        self._slide_max =  config.FIELD_WIDTH - self._base_positions[-1] - width / 2
+        self._slide_max =  field_width - self._base_positions[-1] - width / 2
 
     # ------------------------------------------------------------------
     # Properties
@@ -300,8 +302,8 @@ class Field:
         goal_width:      float        = config.GOAL_WIDTH,
         rod_x_positions: list[float]  = None,
         rod_configs:     list[tuple]  = None,
-        player_width:   float        = config.PLAYER_WIDTH,
-        player_thickness:  float        = config.PLAYER_THICKNESS,
+        player_width:    float        = config.PLAYER_WIDTH,
+        player_thickness: float        = config.PLAYER_THICKNESS,
         rod_x_reach:     float        = config.ROD_X_REACH,
     ):
         self.depth = depth
@@ -320,7 +322,7 @@ class Field:
         self.rods: list[Rod] = [
             Rod(x=x, team=team, n_players=n,
                 width=player_width, thickness=player_thickness,
-                rod_x_reach=rod_x_reach)
+                rod_x_reach=rod_x_reach, field_width=width)
             for x, (team, n) in zip(xs, cfgs)
             if team != -1
         ]

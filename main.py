@@ -7,7 +7,7 @@ Experiments use the time-stepped continuous simulation engine.
 """
 
 from field import Field
-from strategy import SmackBall, AimAtGap
+from strategy import SmackBall, AimAtGap, HardOffense
 from monte_carlo import run_monte_carlo
 
 
@@ -34,21 +34,18 @@ def run_experiment(
 def main() -> None:
     print(Field().describe())
 
-    # Experiment 1: Symmetric baseline
     run_experiment(
         "Exp 1 - Symmetric: both SmackBall, equal skill",
         field      = Field(),
         strategies = {0: SmackBall(), 1: SmackBall()},
     )
 
-    # Experiment 2: Strategy comparison
     run_experiment(
-        "Exp 2 - SmackBall (T0) vs AimAtGap (T1)",
+        "Exp 2 - SmackBall vs AimAtGap",
         field      = Field(),
         strategies = {0: SmackBall(), 1: AimAtGap()},
     )
 
-    # Experiment 3: Skill gap
     skilled_field = Field()
     for rod in skilled_field.rods:
         if rod.team == 0:
@@ -57,11 +54,22 @@ def main() -> None:
             rod.accuracy, rod.power_consistency = 0.2, 0.2
 
     run_experiment(
-        "Exp 3 - Skill gap: T0 (0.9) vs T1 (0.2), both SmackBall",
+        "Exp 3 - Skill gap: Smackball (0.9) vs (0.2)",
         field      = skilled_field,
         strategies = {0: SmackBall(), 1: SmackBall()},
     )
 
+    run_experiment(
+        "Exp 4 - SmackBall vs HardOffense",
+        field      = Field(),
+        strategies = {0: SmackBall(), 1: HardOffense()},
+    )
+
+    run_experiment(
+        "Exp 5 - HardOffense vs AimAtGap",
+        field      = Field(),
+        strategies = {0: HardOffense(), 1: AimAtGap()},
+    )
 
 if __name__ == "__main__":
     main()
