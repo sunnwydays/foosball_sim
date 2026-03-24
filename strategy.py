@@ -82,6 +82,43 @@ class Strategy(ABC):
         (hit_vx, hit_vy)    — velocity to ADD to the ball.
         """
 
+    def choose_up(
+        self,
+        rod: Rod,
+        ball: BallState,
+        field: Field,
+    ) -> bool:
+        """Decide whether to flip the rod up (ball phases through). Default: never."""
+        return False
+
+    def _apply_hit(
+        self,
+        rod: Rod,
+        aim_x: float,
+        aim_y: float,
+        player_y: float,
+        intended_speed: float,
+    ) -> Optional[tuple[float, float]]:
+        """
+        Compute hit velocity toward (aim_x, aim_y) from the player's position,
+        with speed and angle noise from rod.speed_std / rod.angle_std.
+        Returns None if the aim point is too close to the player.
+        """
+        dx = aim_x - rod.x
+        dy = aim_y - player_y
+        if math.sqrt(dx * dx + dy * dy) < 1e-6:
+            return None
+
+        actual_speed = float(np.random.normal(intended_speed, rod.speed_std))
+        actual_speed = max(10.0, min(config.BALL_MAX_SPEED, actual_speed))
+
+        intended_angle = math.atan2(dy, dx)
+        actual_angle = float(np.random.normal(intended_angle, rod.angle_std))
+
+        return (
+            actual_speed * math.cos(actual_angle),
+            actual_speed * math.sin(actual_angle),
+        )
 
 # ---------------------------------------------------------------------------
 # SmackBall — simple baseline
@@ -127,34 +164,11 @@ class SmackBall(Strategy):
         ball: BallState,
         field: Field,
     ) -> Optional[tuple[float, float]]:
-        # Always hit — aim at goal center
         goal = field.goal_for_attacker(rod.team)
-        goal_cy = (goal.y_min + goal.y_max) / 2
-
+        aim_x = goal.x
+        aim_y = (goal.y_min + goal.y_max) / 2
         player_y = rod.player_positions[player_idx]
-        dx = goal.x - rod.x
-        dy = goal_cy - player_y
-
-        # Normalize to a unit direction, then scale to desired hit speed
-        dist = math.sqrt(dx * dx + dy * dy)
-        if dist < 1e-6:
-            return None
-        ux, uy = dx / dist, dy / dist
-
-        # Intended speed with noise
-        intended_speed = config.BALL_MAX_SPEED * 0.8
-        actual_speed = float(np.random.normal(intended_speed, rod.speed_std))
-        actual_speed = max(10.0, min(config.BALL_MAX_SPEED, actual_speed))
-
-        # Add angle noise
-        intended_angle = math.atan2(uy, ux)
-        actual_angle = float(np.random.normal(intended_angle, rod.angle_std))
-
-        hit_vx = actual_speed * math.cos(actual_angle)
-        hit_vy = actual_speed * math.sin(actual_angle)
-
-        return (hit_vx, hit_vy)
-
+        return self._apply_hit(rod, aim_x, aim_y, player_y, config.BALL_MAX_SPEED * 0.8)
 
 # ---------------------------------------------------------------------------
 # AimAtGap — scans for defensive gaps before hitting
@@ -238,23 +252,52 @@ class AimAtGap(Strategy):
         field: Field,
     ) -> Optional[tuple[float, float]]:
         aim_x, aim_y = self._find_gap_target(rod, ball, field)
-
         player_y = rod.player_positions[player_idx]
-        dx = aim_x - rod.x
-        dy = aim_y - player_y
+        return self._apply_hit(rod, aim_x, aim_y, player_y, config.BALL_MAX_SPEED * 0.8)
 
-        dist = math.sqrt(dx * dx + dy * dy)
-        if dist < 1e-6:
-            return None
+# ---------------------------------------------------------------------------
+# HardOffense — trying to hit into the goal, remove obstacles
+# ---------------------------------------------------------------------------
 
-        intended_speed = config.BALL_MAX_SPEED * 0.8
-        actual_speed = float(np.random.normal(intended_speed, rod.speed_std))
-        actual_speed = max(10.0, min(config.BALL_MAX_SPEED, actual_speed))
+class HardOffense(Strategy):
+    """
+    Like SmackBall but aims through the largest gap in the nearest opponent rod
+    between the ball and the goal.
+    """
 
-        intended_angle = math.atan2(dy, dx)
-        actual_angle = float(np.random.normal(intended_angle, rod.angle_std))
+    def choose_hands(
+        self,
+        team_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+        n_hands: int,
+    ) -> set[int]:
+        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
+        return {idx for idx, _ in sorted_rods[:n_hands]}
 
-        return (
-            actual_speed * math.cos(actual_angle),
-            actual_speed * math.sin(actual_angle),
-        )
+    def choose_targets(
+        self,
+        controlled_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+    ) -> dict[int, tuple[float, float]]:
+        targets = {}
+        for rod_idx, rod in controlled_rods:
+            target_y = ball.y - field.width / 2
+            targets[rod_idx] = (target_y, 0.0)
+        return targets
+
+    def choose_hit(
+        self,
+        rod: Rod,
+        player_idx: int,
+        ball: BallState,
+        field: Field,
+    ) -> Optional[tuple[float, float]]:
+        goal = field.goal_for_attacker(rod.team)
+        aim_x = goal.x
+        goal_cy = (goal.y_min + goal.y_max) / 2
+        goal_half = (goal.y_max - goal.y_min) / 2
+        aim_y = float(np.clip(np.random.normal(goal_cy, goal_half / 2), goal.y_min, goal.y_max))
+        player_y = rod.player_positions[player_idx]
+        return self._apply_hit(rod, aim_x, aim_y, player_y, config.BALL_MAX_SPEED * 0.8)

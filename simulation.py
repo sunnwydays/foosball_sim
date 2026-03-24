@@ -157,6 +157,7 @@ def simulate_point(
         # --------------------------------------------------------------
         # 2. Strategy decisions: hands + targets
         # --------------------------------------------------------------
+        # TODO: decide whether or not to have players up
         for team in (0, 1):
             strat = strategies[team]
             ts    = team_states[team]

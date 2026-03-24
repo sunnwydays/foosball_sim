@@ -135,6 +135,7 @@ def draw_field(
     rod_ys = [r.y_offset for r in field.rods]
     rod_xs = [r.x_offset for r in field.rods]
     rod_ctrl = [r.controlled for r in field.rods]
+    # TODO: visualize rod upside-down state
     _draw_rods_from_offsets(ax, field, rod_ys, rod_xs, rod_ctrl, show_reach)
 
     if ball_state is not None:
