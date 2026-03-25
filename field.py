@@ -221,7 +221,7 @@ class Goal:
 
     def contains(self, y: float) -> bool:
         """True if y is within the goal opening."""
-        return self.y_min <= y <= self.y_max
+        return self.y_min < y < self.y_max
 
 
 # ---------------------------------------------------------------------------

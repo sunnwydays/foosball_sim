@@ -136,13 +136,24 @@ def simulate_point(
             # No switch_timer — starting positions, not a mid-game switch
         ts.active_rods = initial_hands
 
-        # Set initial targets
+        # Set initial targets for controlled rods
         controlled = [(i, field.rods[i]) for i in initial_hands]
         targets = strat.choose_targets(controlled, ball, field)
-        for rod_idx, (ty, tx) in targets.items():
+        for rod_idx, (ty, tx, up) in targets.items():
             rod = field.rods[rod_idx]
             rod.target_y = ty
             rod.set_x_offset(tx)
+            rod.up = up
+
+        # Set initial passive rod positions
+        all_rod_idxs = {idx for idx, _ in team_rods}
+        passive = [(i, field.rods[i]) for i in all_rod_idxs - initial_hands]
+        if passive:
+            passive_targets = strat.choose_passive(passive, ball, field)
+            for rod_idx, (tx, up) in passive_targets.items():
+                rod = field.rods[rod_idx]
+                rod.set_x_offset(tx)
+                rod.up = up
 
     # --- Tick loop ---
     for tick in range(config.MAX_TICKS):
@@ -193,17 +204,24 @@ def simulate_point(
             if not ts.reacting:
                 controlled = [(i, field.rods[i]) for i in desired_hands]
                 targets = strat.choose_targets(controlled, ball, field)
-                for rod_idx, (ty, tx) in targets.items():
+                for rod_idx, (ty, tx, up) in targets.items():
                     rod = field.rods[rod_idx]
                     rod.target_y = ty
                     rod.set_x_offset(tx)
+                    rod.up = up
 
             # If reacting: rods keep moving toward their previous target_y
             # (no new commands issued — this is the reaction time lockout)
 
-            # Up/down decisions (always available, even during reaction)
-            for rod_idx, rod in team_rods:
-                rod.up = strat.choose_up(rod, ball, field)
+            # Passive rod positioning (always available, even during reaction)
+            all_rod_idxs = {idx for idx, _ in team_rods}
+            passive = [(i, field.rods[i]) for i in all_rod_idxs - desired_hands]
+            if passive:
+                passive_targets = strat.choose_passive(passive, ball, field)
+                for rod_idx, (tx, up) in passive_targets.items():
+                    rod = field.rods[rod_idx]
+                    rod.set_x_offset(tx)
+                    rod.up = up
 
         # --------------------------------------------------------------
         # 3. Move rods

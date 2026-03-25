@@ -14,11 +14,28 @@ find_overlapping_players(ball, field)
 
 from __future__ import annotations
 
-import math
-from typing import Optional
+from dataclasses import dataclass
 
 import config
-from field import BallState, Field, Goal
+from field import BallState, Field
+
+
+@dataclass
+class ContactParams:
+    """Tunable parameters for passive player contact."""
+    slowdown:          float = config.CONTACT_SLOWDOWN
+    min_speed:         float = config.CONTACT_MIN_SPEED
+    speed_pushback:    float = config.SPEED_PUSHBACK
+    offset_pushback:   float = config.OFFSET_PUSHBACK
+    pushback_x_start:  float = config.PUSHBACK_X_START
+    passthrough_speed: float = config.PASSTHROUGH_SPEED
+    rod_up_threshold:  float = config.ROD_UP_THRESHOLD
+    glance_threshold:  float = config.GLANCE_THRESHOLD
+    deflection:        float = config.CONTACT_DEFLECTION
+
+
+# Default instance reused when no overrides are needed
+DEFAULT_CONTACT = ContactParams()
 
 
 def step_ball(
@@ -26,8 +43,8 @@ def step_ball(
     field: Field,
     dt: float,
     friction: float = config.FRICTION,
-    restitution: float = 1.0,
     ball_radius: float = 0.0,
+    contact: ContactParams = DEFAULT_CONTACT,
 ) -> str:
     """
     Advance the ball by one tick.
@@ -39,7 +56,6 @@ def step_ball(
     Parameters
     ----------
     friction    : deceleration in cm/s² (default: config.FRICTION)
-    restitution : bounce dampening 0–1 (1 = perfect elastic, default)
     ball_radius : ball radius in cm for collision offset (default: 0 = point)
 
     Returns
@@ -49,6 +65,30 @@ def step_ball(
     'goal:1'  — ball entered a goal, team 1 scored
     'stopped' — ball speed dropped below STOP_THRESHOLD
     """
+    # Substep if the ball would move too far in one tick
+    max_step = config.PLAYER_THICKNESS / 2
+    dist = ball.speed * dt
+    if dist > max_step:
+        n_sub = int(dist / max_step) + 1
+        sub_dt = dt / n_sub
+        for _ in range(n_sub):
+            result = _step_ball_inner(ball, field, sub_dt, friction,
+                                      ball_radius, contact)
+            if result != 'play':
+                return result
+        return 'play'
+
+    return _step_ball_inner(ball, field, dt, friction, ball_radius, contact)
+
+
+def _step_ball_inner(
+    ball: BallState,
+    field: Field,
+    dt: float,
+    friction: float,
+    ball_radius: float,
+    contact: ContactParams,
+) -> str:
     r = ball_radius
 
     # --- Move ---
@@ -58,52 +98,106 @@ def step_ball(
     # --- Side wall bounces (y boundaries) ---
     if ball.y <= r:
         ball.y = 2 * r - ball.y         # reflect off bottom
-        ball.vy = abs(ball.vy) * restitution
+        ball.vy = abs(ball.vy)
     elif ball.y >= field.width - r:
         ball.y = 2 * (field.width - r) - ball.y
-        ball.vy = -abs(ball.vy) * restitution
+        ball.vy = -abs(ball.vy)
 
     # Clamp in case of floating-point overshoot
     ball.y = max(r, min(field.width - r, ball.y))
 
     # --- End wall / goal check (x boundaries) ---
+    gd = config.GOAL_DEPTH
+
     if ball.x <= r:
         if field.left_goal.contains(ball.y):
-            return f"goal:{field.left_goal.scoring_team}"
-        # Bounce off end wall (outside goal)
-        ball.x = 2 * r - ball.x
-        ball.vx = abs(ball.vx) * restitution
+            # Ball is in goal opening — score once deep enough
+            if ball.x <= -gd + r:
+                return f"goal:{field.left_goal.scoring_team}"
+            # Otherwise let it keep moving into the goal area
+        else:
+            # Bounce off end wall (outside goal)
+            ball.x = 2 * r - ball.x
+            ball.vx = abs(ball.vx)
 
     elif ball.x >= field.depth - r:
         if field.right_goal.contains(ball.y):
-            return f"goal:{field.right_goal.scoring_team}"
-        ball.x = 2 * (field.depth - r) - ball.x
-        ball.vx = -abs(ball.vx) * restitution
+            if ball.x >= field.depth + gd - r:
+                return f"goal:{field.right_goal.scoring_team}"
+        else:
+            ball.x = 2 * (field.depth - r) - ball.x
+            ball.vx = -abs(ball.vx)
 
-    # Clamp x
-    ball.x = max(r, min(field.depth - r, ball.x))
+    # Clamp x (allow ball into goal area but not beyond goal depth)
+    ball.x = max(-gd + r, min(field.depth + gd - r, ball.x))
 
-    # --- Player bounces (passive, wall-like) ---
+    # --- Passive player contact (uncontrolled rods) ---
     for rod in field.rods:
         if rod.up or rod.controlled:
             continue
-        hw = rod.thickness / 2 + r   # half-width in x including ball radius
-        hh = rod.width / 2 + r       # half-height in y including ball radius
+        ht = rod.thickness / 2 + r   # half-thickness in x including ball radius
+        hw = rod.width / 2 + r       # half-width in y including ball radius
         for py in rod.player_positions:
             dx = ball.x - rod.x
             dy = ball.y - py
-            if abs(dx) < hw and abs(dy) < hh:
-                # Determine which face the ball entered from using penetration depth
-                pen_x = hw - abs(dx)
-                pen_y = hh - abs(dy)
-                if pen_x < pen_y:
-                    # Push out in x
-                    ball.x = rod.x + (hw if dx > 0 else -hw)
-                    ball.vx = -ball.vx * restitution
-                else:
-                    # Push out in y
-                    ball.y = py + (hh if dy > 0 else -hh)
-                    ball.vy = -ball.vy * restitution
+            if abs(dx) >= ht or abs(dy) >= hw:
+                continue
+
+            # Which face did the ball enter from?
+            pen_x = ht - abs(dx)
+            pen_y = hw - abs(dy)
+
+            # --- Side face (y): simple bounce ---
+            if pen_x >= pen_y:
+                ball.y = py + (hw if dy > 0 else -hw)
+                ball.vy = -ball.vy
+                continue
+
+            # --- Front face (x): passive contact model ---
+            
+            # Push ball out of the player
+            ball.x = rod.x + (ht if dx > 0 else -ht)
+
+            orig_speed = abs(ball.vx)
+
+            # 1. Rod response
+            # Fast ball flips rod up immediately
+            if orig_speed > contact.passthrough_speed:
+                rod.up = True
+                ball.vx *= contact.slowdown
+                continue
+
+            hit_sign = 1.0 if dx > 0 else -1.0
+            push_dir = -hit_sign
+            offset_toward_ball = rod.x_offset * hit_sign  # > 0 is forward tilt
+
+            # Pushback if rod isn't tilted too far forward
+            if offset_toward_ball < contact.pushback_x_start:
+                offset_dist = contact.pushback_x_start - offset_toward_ball
+                pb = orig_speed * contact.speed_pushback + offset_dist * contact.offset_pushback
+                rod.set_x_offset(rod.x_offset + pb * push_dir)
+                offset_toward_ball = rod.x_offset * hit_sign
+            
+            # Rod is too tilted for the ball to hit
+            if offset_toward_ball < contact.rod_up_threshold:
+                rod.up = True
+
+            # 2. Ball response
+            reflect_x = offset_toward_ball <= contact.glance_threshold
+
+            if reflect_x:
+                ball.vx *= -contact.slowdown
+            else:
+                ball.vx *= contact.slowdown
+
+            # vy deflection based on where on the face the ball hit
+            # dy/hw is -1 to 1: above center → positive, below → negative
+            ball.vy += (dy / hw) * orig_speed * contact.deflection
+
+            # Catch slow ball
+            if abs(ball.vx) < contact.min_speed:
+                ball.vx = 0.0
+                ball.vy = 0.0
 
     # --- Friction ---
     speed = ball.speed

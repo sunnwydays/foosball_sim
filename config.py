@@ -18,6 +18,7 @@ FIELD_WIDTH  =  68.0   # y-axis: bottom wall (y=0) → top wall (y=FIELD_WIDTH)
 
 # Goal opening, centered on the y-axis
 GOAL_WIDTH = 20.0
+GOAL_DEPTH = 3.0   # cm — ball must travel this far past the goal line to score
 GOAL_Y_MIN = (FIELD_WIDTH - GOAL_WIDTH) / 2   # 24.0 cm
 GOAL_Y_MAX = (FIELD_WIDTH + GOAL_WIDTH) / 2   # 44.0 cm
 
@@ -50,7 +51,7 @@ KICKOFF_ROD = {0: 3, 1: 4}
 # Player physical parameters
 # ---------------------------------------------------------------------------
 PLAYER_WIDTH     = 2.5   # cm — full width of a player figure (y direction)
-PLAYER_THICKNESS = 1.8   # cm — full thickness of a player figure (x direction)
+PLAYER_THICKNESS = 1.6   # cm — full thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
@@ -68,8 +69,9 @@ MAX_TICKS      = int(MAX_GAME_TIME * FPS)
 # Ball physics
 # ---------------------------------------------------------------------------
 FRICTION       = 10.0     # cm/s² — constant deceleration (ball slows each tick)
-STOP_THRESHOLD =  2.0     # cm/s — below this, ball counts as stopped
-BALL_MAX_SPEED = 220.0    # cm/s — absolute cap on ball speed
+STOP_THRESHOLD = 3.0      # cm/s — below this, ball counts as stopped
+BALL_MAX_SPEED = 320.0    # cm/s — absolute cap on ball speed
+HIT_SPEED      = 180.0    # cm/s — default intended shot speed
 
 # ---------------------------------------------------------------------------
 # Shot noise — maps accuracy/power_consistency (0–1) to distribution std devs
@@ -80,22 +82,35 @@ BALL_MAX_SPEED = 220.0    # cm/s — absolute cap on ball speed
 #   power_consistency=0  → MAX_SPEED_STD  (very variable speed)
 #   power_consistency=1  → MIN_SPEED_STD  (very consistent speed)
 # ---------------------------------------------------------------------------
-MIN_ANGLE_STD = math.radians(3)    #  ~3° for near-perfect accuracy
-MAX_ANGLE_STD = math.radians(35)   # ~35° for low accuracy
+MIN_ANGLE_STD = math.radians(3)
+MAX_ANGLE_STD = math.radians(45)
 
-MIN_SPEED_STD =  2.0   # cm/s
-MAX_SPEED_STD = 25.0   # cm/s
+MIN_SPEED_STD =  3.0   # cm/s
+MAX_SPEED_STD = 40.0   # cm/s
+
+# ---------------------------------------------------------------------------
+# Passive player contact — ball hitting an uncontrolled rod's player
+# ---------------------------------------------------------------------------
+CONTACT_SLOWDOWN    = 0.8    # vx multiplier on contact (0 = full stop, 1 = no effect)
+CONTACT_MIN_SPEED   = 5.0   # cm/s — below this, vx zeroes out on contact
+SPEED_PUSHBACK      = 0.005  # x_offset pushback per unit of ball speed
+OFFSET_PUSHBACK     = 0.10   # x_offset pushback per unit of offset distance from pushback_x_start
+PUSHBACK_X_START    = 2.4    # cm — rod this far forward will not be pushed back
+PASSTHROUGH_SPEED   = BALL_MAX_SPEED * 0.9  # cm/s — ball faster than this flips the rod up
+ROD_UP_THRESHOLD    = -2.4   # cm — rod pushed back past this x_offset flips up
+GLANCE_THRESHOLD    = -1.5   # cm — rod must be tilted back this far for a glance
+CONTACT_DEFLECTION  = 0.30   # vy deflection factor — fraction of vx added to vy based on hit position
 
 # ---------------------------------------------------------------------------
 # Rod movement
 # ---------------------------------------------------------------------------
-MOVEMENT_SPEED = 80.0     # cm/s — max rod slide speed toward target_y
+MOVEMENT_SPEED = 150.0     # cm/s — max rod slide speed toward target_y
 
 # ---------------------------------------------------------------------------
 # Timing parameters (defaults — can be overridden per team)
 # ---------------------------------------------------------------------------
-REACTION_TIME  = 0.15     # seconds — delay before opponent can change direction after a hit
-SWITCH_DELAY   = 0.10     # seconds — delay when switching a hand to a new rod
+REACTION_TIME  = 0.20     # seconds — delay before opponent can change direction after a hit
+SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 
 # ---------------------------------------------------------------------------
 # Gameplay limits

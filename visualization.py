@@ -82,14 +82,14 @@ def _draw_rods_from_offsets(
         rod.y_offset = rod_ys[i]
         rod.x_offset = rod_xs[i]
 
-        # Rod line
+        # Rod line (axis of rotation)
         ax.plot(
-            [rod.x, rod.x], [0, field.width],
+            [rod._base_x, rod._base_x], [0, field.width],
             color=color, linewidth=1.5, alpha=0.4, zorder=2,
         )
 
         for py in rod.player_positions:
-            # Player body
+            # Player foot — fixed size, shifted by x_offset
             player_rect = patches.Rectangle(
                 (rod.x - rod.thickness / 2, py - rod.width / 2),
                 rod.thickness, rod.width,
@@ -99,8 +99,8 @@ def _draw_rods_from_offsets(
 
             if show_reach:
                 reach_rect = patches.Rectangle(
-                    (rod._base_x - rod.rod_x_reach, py - rod.width / 2),
-                    2 * rod.rod_x_reach, rod.width,
+                    (rod._base_x - rod.rod_x_reach - rod.thickness / 2, py - rod.width / 2),
+                    2 * rod.rod_x_reach + rod.thickness, rod.width,
                     linewidth=0.5, edgecolor=color, facecolor=color,
                     alpha=0.15, zorder=1,
                 )

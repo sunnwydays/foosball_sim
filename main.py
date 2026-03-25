@@ -7,7 +7,8 @@ Experiments use the time-stepped continuous simulation engine.
 """
 
 from field import Field
-from strategy import SmackBall, AimAtGap, HardOffense
+from strategy import (SmackBall, AimAtGap, HardOffense,
+                      DefensiveWall, TiltAndGap, ReactiveBlock)
 from monte_carlo import run_monte_carlo
 
 
@@ -69,6 +70,30 @@ def main() -> None:
         "Exp 5 - HardOffense vs AimAtGap",
         field      = Field(),
         strategies = {0: HardOffense(), 1: AimAtGap()},
+    )
+
+    run_experiment(
+        "Exp 6 - DefensiveWall vs HardOffense",
+        field      = Field(),
+        strategies = {0: DefensiveWall(), 1: HardOffense()},
+    )
+
+    run_experiment(
+        "Exp 7 - TiltAndGap vs SmackBall",
+        field      = Field(),
+        strategies = {0: TiltAndGap(), 1: SmackBall()},
+    )
+
+    run_experiment(
+        "Exp 8 - ReactiveBlock vs TiltAndGap",
+        field      = Field(),
+        strategies = {0: ReactiveBlock(), 1: TiltAndGap()},
+    )
+
+    run_experiment(
+        "Exp 9 - ReactiveBlock vs DefensiveWall",
+        field      = Field(),
+        strategies = {0: ReactiveBlock(), 1: DefensiveWall()},
     )
 
 if __name__ == "__main__":

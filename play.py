@@ -16,16 +16,14 @@ KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 SHOW_REACH  = True      # draw player hitbox rectangles
 SAVE_GIF    = True      # save to output/replay.gif
-SHOW_LIVE   = True     # open a matplotlib window to watch live
+SHOW_LIVE   = False     # open a matplotlib window to watch live
 
-# Team 0 strategy
-TEAM_0 = "SmackBall"    # "SmackBall" or "AimAtGap"
-# Team 1 strategy
-TEAM_1 = "AimAtGap"
+TEAM_0 = "SmackBall"
+TEAM_1 = "TiltAndGap"
 
-# Skill overrides (None = use defaults)
-TEAM_0_SKILL = None     # e.g. (0.9, 0.9) for (accuracy, power_consistency)
-TEAM_1_SKILL = None     # e.g. (0.2, 0.2)
+# Skill overrides (e.g. (0.9, 0.9) for (accuracy, power_consistency), None for default)
+TEAM_0_SKILL = (0.7, 0.7)
+TEAM_1_SKILL = (0.6, 0.7)
 
 # ---------------------------------------------------------------------------
 
@@ -38,13 +36,18 @@ config.DT = 1.0 / FPS
 config.MAX_TICKS = int(config.MAX_GAME_TIME * FPS)
 
 from field import Field
-from strategy import SmackBall, AimAtGap
+from strategy import (SmackBall, AimAtGap, HardOffense,
+                      DefensiveWall, TiltAndGap, ReactiveBlock)
 from simulation import simulate_point
 from visualization import replay_point
 
 STRATEGIES = {
-    "SmackBall": SmackBall,
-    "AimAtGap":  AimAtGap,
+    "SmackBall":     SmackBall,
+    "AimAtGap":      AimAtGap,
+    "HardOffense":   HardOffense,
+    "DefensiveWall": DefensiveWall,
+    "TiltAndGap":    TiltAndGap,
+    "ReactiveBlock": ReactiveBlock,
 }
 
 
