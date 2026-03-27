@@ -50,8 +50,8 @@ KICKOFF_ROD = {0: 3, 1: 4}
 # ---------------------------------------------------------------------------
 # Player physical parameters
 # ---------------------------------------------------------------------------
-PLAYER_WIDTH     = 2.5   # cm — full width of a player figure (y direction)
-PLAYER_THICKNESS = 1.6   # cm — full thickness of a player figure (x direction)
+PLAYER_WIDTH     = 3.0   # cm — full width of a player figure (y direction)
+PLAYER_THICKNESS = 1.8   # cm — full thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
@@ -68,6 +68,7 @@ MAX_TICKS      = int(MAX_GAME_TIME * FPS)
 # ---------------------------------------------------------------------------
 # Ball physics
 # ---------------------------------------------------------------------------
+BALL_RADIUS    = 1.75     # cm — ball radius (~35 mm diameter, real foosball ball)
 FRICTION       = 10.0     # cm/s² — constant deceleration (ball slows each tick)
 STOP_THRESHOLD = 3.0      # cm/s — below this, ball counts as stopped
 BALL_MAX_SPEED = 320.0    # cm/s — absolute cap on ball speed

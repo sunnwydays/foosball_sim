@@ -283,7 +283,11 @@ def main() -> None:
         ax_field.cla()
         draw_mini_field(ax_field, _current_field())
         bx, by = state["ball_x"], state["ball_y"]
-        ax_field.plot(bx, by, 'o', color=BALL_COLOR, markersize=8, alpha=0.6, zorder=5)
+        ball_marker = plt.Circle(
+            (bx, by), radius=config.BALL_RADIUS,
+            color=BALL_COLOR, alpha=0.6, zorder=5,
+        )
+        ax_field.add_patch(ball_marker)
 
         # Velocity arrow (capped length)
         vx, vy = s_vx.val, s_vy.val
@@ -368,6 +372,7 @@ def main() -> None:
         for _ in range(MAX_STEPS):
             result = step_ball(ball, field, PHYSICS_DT,
                                friction=friction,
+                               ball_radius=config.BALL_RADIUS,
                                contact=cp)
             positions.append((ball.x, ball.y, ball.vx, ball.vy, rod.x_offset, rod.up))
             if result != "play":
@@ -405,7 +410,7 @@ def main() -> None:
 
             # Ball
             ball_circle = plt.Circle(
-                (bx, by), radius=1.0,
+                (bx, by), radius=config.BALL_RADIUS,
                 color=BALL_COLOR, zorder=6,
             )
             ax_field.add_patch(ball_circle)

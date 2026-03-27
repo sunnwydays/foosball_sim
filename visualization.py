@@ -22,6 +22,7 @@ import matplotlib.patches as patches
 import matplotlib.animation as animation
 import numpy as np
 
+import config
 from field import Field, BallState
 from simulation import Frame
 
@@ -142,7 +143,7 @@ def draw_field(
 
     if ball_state is not None:
         ball_circle = plt.Circle(
-            (ball_state.x, ball_state.y), radius=2,
+            (ball_state.x, ball_state.y), radius=config.BALL_RADIUS,
             color=BALL_COLOR, zorder=6,
         )
         ax.add_patch(ball_circle)
@@ -216,7 +217,7 @@ def replay_point(
 
         # Ball
         ball_circle = plt.Circle(
-            (fr.ball_x, fr.ball_y), radius=2,
+            (fr.ball_x, fr.ball_y), radius=config.BALL_RADIUS,
             color=BALL_COLOR, zorder=6,
         )
         ax.add_patch(ball_circle)

@@ -232,7 +232,8 @@ def simulate_point(
         # --------------------------------------------------------------
         # 4. Move ball
         # --------------------------------------------------------------
-        ball_result = step_ball(ball, field, dt)
+        ball_result = step_ball(ball, field, dt,
+                                ball_radius=config.BALL_RADIUS)
 
         # Check for goal
         if ball_result.startswith('goal:'):
