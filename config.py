@@ -89,6 +89,9 @@ MAX_ANGLE_STD = math.radians(45)
 MIN_SPEED_STD =  3.0   # cm/s
 MAX_SPEED_STD = 40.0   # cm/s
 
+MIN_MOVEMENT_STD = 0.2   # cm — at movement_control=1 (precise positioning)
+MAX_MOVEMENT_STD = 3.0   # cm — at movement_control=0 (sloppy positioning)
+
 # ---------------------------------------------------------------------------
 # Passive player contact — ball hitting an uncontrolled rod's player
 # ---------------------------------------------------------------------------

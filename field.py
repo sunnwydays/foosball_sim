@@ -16,6 +16,8 @@ import math
 from dataclasses import dataclass, field as dc_field
 from typing import Optional
 
+import numpy as np
+
 import config
 
 
@@ -55,6 +57,7 @@ class Rod:
         n_players: int,
         accuracy: float = 0.5,
         power_consistency: float = 0.5,
+        movement_control: float = 0.5,
         width: float = config.PLAYER_WIDTH,
         thickness: float = config.PLAYER_THICKNESS,
         rod_x_reach: float = config.ROD_X_REACH,
@@ -65,6 +68,7 @@ class Rod:
         self.n_players   = n_players
         self.accuracy          = accuracy
         self.power_consistency = power_consistency
+        self.movement_control  = movement_control
         self.width      = width
         self.thickness   = thickness
         self.rod_x_reach = rod_x_reach
@@ -75,8 +79,9 @@ class Rod:
         self.up          = False # can balls pass through the rod?
 
         # --- Continuous movement state ---
-        self.target_y    = 0.0   # desired y_offset (rod moves toward this)
-        self.vy          = 0.0   # current y-velocity (cm/s)
+        self.target_y           = 0.0   # actual (noisy) target y_offset
+        self._intended_target_y = 0.0   # intended target before control noise
+        self.vy                 = 0.0   # current y-velocity (cm/s)
 
         # --- Control state ---
         self.controlled    = False  # is a hand currently on this rod?
@@ -132,9 +137,24 @@ class Rod:
             + self.power_consistency * (config.MIN_SPEED_STD - config.MAX_SPEED_STD)
         )
 
+    @property
+    def movement_std(self) -> float:
+        """Positional error std dev (cm) when settling at a target y, derived from movement_control."""
+        return (
+            config.MAX_MOVEMENT_STD
+            + self.movement_control * (config.MIN_MOVEMENT_STD - config.MAX_MOVEMENT_STD)
+        )
+
     # ------------------------------------------------------------------
     # Methods
     # ------------------------------------------------------------------
+
+    def set_target_y(self, ty: float) -> None:
+        """Set intended target y, applying movement control noise if the target meaningfully changed."""
+        if abs(ty - self._intended_target_y) > self.movement_std * 0.5:
+            self._intended_target_y = ty
+            noise = float(np.random.normal(0.0, self.movement_std))
+            self.target_y = max(self._slide_min, min(self._slide_max, ty + noise))
 
     def set_offset(self, offset: float) -> None:
         """Slide rod to y `offset`, clamping to valid range."""
@@ -185,13 +205,14 @@ class Rod:
 
     def reset(self) -> None:
         """Reset all mutable state to defaults."""
-        self.y_offset     = 0.0
-        self.x_offset     = 0.0
-        self.target_y     = 0.0
-        self.vy           = 0.0
-        self.controlled   = False
-        self.switch_timer = 0.0
-        self.up           = False
+        self.y_offset           = 0.0
+        self.x_offset           = 0.0
+        self.target_y           = 0.0
+        self._intended_target_y = 0.0
+        self.vy                 = 0.0
+        self.controlled         = False
+        self.switch_timer       = 0.0
+        self.up                 = False
 
     def __repr__(self) -> str:
         ctrl = "H" if self.controlled else "-"

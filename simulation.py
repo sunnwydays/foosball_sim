@@ -141,7 +141,7 @@ def simulate_point(
         targets = strat.choose_targets(controlled, ball, field)
         for rod_idx, (ty, tx, up) in targets.items():
             rod = field.rods[rod_idx]
-            rod.target_y = ty
+            rod.set_target_y(ty)
             rod.set_x_offset(tx)
             rod.up = up
 
@@ -206,7 +206,7 @@ def simulate_point(
                 targets = strat.choose_targets(controlled, ball, field)
                 for rod_idx, (ty, tx, up) in targets.items():
                     rod = field.rods[rod_idx]
-                    rod.target_y = ty
+                    rod.set_target_y(ty)
                     rod.set_x_offset(tx)
                     rod.up = up
 
