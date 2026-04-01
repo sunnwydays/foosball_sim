@@ -59,7 +59,7 @@ def _draw_base_field(ax: plt.Axes, field: Field) -> None:
         g = patches.Rectangle(
             (gx, goal.y_min), goal_vis_depth, goal.y_max - goal.y_min,
             linewidth=1.5, edgecolor=LINE_WHITE,
-            facecolor=TEAM_COLOR[goal.scoring_team], alpha=0.6,
+            facecolor=TEAM_COLOR[1 - goal.scoring_team], alpha=0.6,
         )
         ax.add_patch(g)
 
@@ -329,12 +329,12 @@ def draw_stats(
     )
     ax.set_aspect("equal")
 
-    # Top layer: goal-scoring hit locations, coloured by which team was scored on
-    # p = (x, y, scoring_team); scoring_team 0 → scored on blue, 1 → scored on red
-    GOAL_COLOR = {0: "#c03010", 1: "#1a60c0"}   # winner 0 → red goal; winner 1 → blue goal
+    # Top layer: goal hit origins, coloured by which team's goal the ball entered
+    # p = (x, y, goal_team); goal_team = team whose goal was scored in (0=blue, 1=red)
+    GOAL_COLOR = {0: "#1a60c0", 1: "#c03010"}   # blue team's goal → blue; red team's goal → red
     if goal_hits:
-        for team, color in GOAL_COLOR.items():
-            pts = [(p[0], p[1]) for p in goal_hits if p[2] == team]
+        for goal_team, color in GOAL_COLOR.items():
+            pts = [(p[0], p[1]) for p in goal_hits if p[2] == goal_team]
             if pts:
                 ax.scatter([p[0] for p in pts], [p[1] for p in pts],
                            color=color, s=12, alpha=0.8, zorder=3)

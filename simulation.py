@@ -243,7 +243,8 @@ def simulate_point(
         if ball_result.startswith('goal:'):
             winner = int(ball_result.split(':')[1])
             if goal_hits is not None and last_hit_pos is not None:
-                goal_hits.append((*last_hit_pos, winner))
+                goal_team = 1 - winner  # team whose goal the ball entered
+                goal_hits.append((*last_hit_pos, goal_team))
             if record:
                 frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}'))
             return PointResult(
