@@ -2,6 +2,8 @@
 
 A time-stepped probabilistic foosball simulator where players, rods, and ball physics are modeled continuously with friction, reaction time, and hand-switching delays. Strategies control rod positioning and shot decisions each tick, and skill parameters add noise to shots. Built as a foundation for Monte Carlo analysis and eventually RL self-play agents.
 
+> [Progress slideshow](https://docs.google.com/presentation/d/1WwC7birlvtY4RJgm4wU8oJ-nC4ZbmzimYfUHUty_2lY)
+
 ## Setup
 
 ```bash
