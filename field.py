@@ -170,7 +170,7 @@ class Rod:
         or None.
         """
         for i, py in enumerate(self.player_positions):
-            if abs(x - self.x) <= self.thickness / 2 and abs(y - py) <= self.width / 2:
+            if abs(x - self._base_x) <= self.rod_x_reach + self.thickness / 2 and abs(y - py) <= self.width / 2:
                 return i
         return None
 
