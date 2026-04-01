@@ -75,7 +75,7 @@ BALL_MAX_SPEED = 320.0    # cm/s — absolute cap on ball speed
 HIT_SPEED      = 180.0    # cm/s — default intended shot speed
 
 # ---------------------------------------------------------------------------
-# Shot noise — maps accuracy/power_consistency (0–1) to distribution std devs
+# Shot noise — maps accuracy/power_consistency (0-1) to distribution std devs
 #
 #   accuracy=0  → MAX_ANGLE_STD  (wild, unpredictable shots)
 #   accuracy=1  → MIN_ANGLE_STD  (tight, precise shots)
@@ -120,3 +120,8 @@ SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 # Gameplay limits
 # ---------------------------------------------------------------------------
 N_HANDS = 2   # max rods a team can control simultaneously (1 to n_team_rods)
+
+# ---------------------------------------------------------------------------
+# Stats / heatmap
+# ---------------------------------------------------------------------------
+STATS_GRID_RES = 1.0   # cm per grid cell (lower = finer resolution)

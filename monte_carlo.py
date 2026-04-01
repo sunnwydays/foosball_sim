@@ -20,6 +20,7 @@ from typing import Optional
 
 import numpy as np
 
+import config
 from field import Field
 from strategy import Strategy
 from simulation import simulate_point, PointResult
@@ -45,6 +46,8 @@ class MCResult:
     draw_rate          : draws / n_simulations.
     avg_ticks          : mean ticks per point.
     avg_time           : mean game-time per point (seconds).
+    pos_grid           : normalized ball position heatmap (if track_stats=True).
+    goal_hits          : (x, y) of last active hit before each goal (if track_stats=True).
     """
     n_simulations:   int
     team0_wins:      int
@@ -55,6 +58,8 @@ class MCResult:
     draw_rate:       float
     avg_ticks:       float
     avg_time:        float
+    pos_grid:        Optional[np.ndarray] = None
+    goal_hits:       Optional[list]       = None
 
     def __str__(self) -> str:
         bar0 = "#" * round(self.team0_win_rate * 40)
@@ -79,6 +84,7 @@ def run_monte_carlo(
     n_simulations:  int   = 1_000,
     p_team0_starts: float = 0.5,
     seed:           Optional[int] = None,
+    track_stats:    bool  = False,
 ) -> MCResult:
     """
     Run `n_simulations` independent point simulations and aggregate results.
@@ -103,6 +109,12 @@ def run_monte_carlo(
     all_ticks: list[int]   = []
     all_times: list[float] = []
 
+    # Stats tracking
+    depth_cells = int(field.depth / config.STATS_GRID_RES)
+    width_cells = int(field.width / config.STATS_GRID_RES)
+    pos_grid  = np.zeros((depth_cells, width_cells)) if track_stats else None
+    goal_hits: list = [] if track_stats else None
+
     for _ in range(n_simulations):
         kickoff_team = 0 if np.random.random() < p_team0_starts else 1
 
@@ -110,6 +122,8 @@ def run_monte_carlo(
             field, strategies,
             kickoff_team=kickoff_team,
             record=False,
+            pos_grid=pos_grid,
+            goal_hits=goal_hits,
         )
 
         all_ticks.append(result.ticks)
@@ -119,6 +133,10 @@ def run_monte_carlo(
             wins[result.winner] += 1
         else:
             draws += 1
+
+    # Normalize grid to [0, 1]
+    if pos_grid is not None and pos_grid.max() > 0:
+        pos_grid = pos_grid / pos_grid.max()
 
     total = n_simulations
     return MCResult(
@@ -131,4 +149,6 @@ def run_monte_carlo(
         draw_rate      = draws / total,
         avg_ticks      = float(np.mean(all_ticks)),
         avg_time       = float(np.mean(all_times)),
+        pos_grid       = pos_grid,
+        goal_hits      = goal_hits,
     )

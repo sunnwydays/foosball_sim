@@ -157,7 +157,6 @@ def draw_field(
     for spine in ax.spines.values():
         spine.set_edgecolor(WALL_GRAY)
 
-    plt.tight_layout()
     return ax
 
 
@@ -267,3 +266,79 @@ def replay_point(
         print(f"Saved animation to {save_path}")
 
     return anim
+
+
+# ---------------------------------------------------------------------------
+# Stats / heatmap visualization
+# ---------------------------------------------------------------------------
+
+def _gaussian_blur(grid: np.ndarray, sigma: float) -> np.ndarray:
+    """Pure numpy 2D gaussian blur via separable 1D convolutions."""
+    if sigma <= 0:
+        return grid
+    radius = int(3 * sigma + 0.5)
+    x = np.arange(-radius, radius + 1, dtype=float)
+    kernel = np.exp(-0.5 * (x / sigma) ** 2)
+    kernel /= kernel.sum()
+    # Apply separably along each axis
+    out = np.apply_along_axis(lambda row: np.convolve(row, kernel, mode="same"), 0, grid)
+    out = np.apply_along_axis(lambda col: np.convolve(col, kernel, mode="same"), 1, out)
+    return out
+
+def draw_stats(
+    field: Field,
+    pos_grid: np.ndarray,
+    goal_hits: list,
+    title: str = "Ball Heatmap & Goal Origins",
+    sigma: float = 1.5,
+    ax: Optional[plt.Axes] = None,
+) -> plt.Axes:
+    """
+    Overlay a ball-position heatmap and goal-scoring hit locations on the field.
+
+    Parameters
+    ----------
+    field     : Field instance for layout.
+    pos_grid  : normalized (0-1) ball position grid, shape (depth_cells, width_cells).
+    goal_hits : list of (x, y) tuples — last active hit before each goal.
+    sigma     : gaussian blur sigma in grid cells (controls fade/bleed).
+    ax        : existing Axes to draw on; creates a new figure if None.
+    """
+    smoothed = _gaussian_blur(pos_grid.astype(float), sigma=sigma)
+
+    if smoothed.max() > 0:
+        smoothed = smoothed / smoothed.max()
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
+        fig.subplots_adjust(left=0.05, right=0.95, top=0.92, bottom=0.05)
+
+    # Base layer: field
+    draw_field(field, ax=ax)
+
+    # Middle layer: heatmap
+    ax.imshow(
+        smoothed.T,
+        origin="lower",
+        extent=[0, field.depth, 0, field.width],
+        cmap="hot",
+        alpha=0.6,
+        zorder=2,
+        interpolation="bilinear",
+        aspect="auto",
+    )
+    ax.set_aspect("equal")
+
+    # Top layer: goal-scoring hit locations, coloured by which team was scored on
+    # p = (x, y, scoring_team); scoring_team 0 → scored on blue, 1 → scored on red
+    GOAL_COLOR = {0: "#c03010", 1: "#1a60c0"}   # winner 0 → red goal; winner 1 → blue goal
+    if goal_hits:
+        for team, color in GOAL_COLOR.items():
+            pts = [(p[0], p[1]) for p in goal_hits if p[2] == team]
+            if pts:
+                ax.scatter([p[0] for p in pts], [p[1] for p in pts],
+                           color=color, s=12, alpha=0.8, zorder=3)
+
+    ax.set_title(title, color="white", pad=8)
+    ax.get_figure().tight_layout()
+    return ax

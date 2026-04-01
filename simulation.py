@@ -80,6 +80,8 @@ def simulate_point(
     n_hands:     int = config.N_HANDS,
     record:      bool = False,
     seed:        Optional[int] = None,
+    pos_grid:    Optional[np.ndarray] = None,
+    goal_hits:   Optional[list] = None,
 ) -> PointResult:
     """
     Simulate one foosball point with time-stepped physics.
@@ -122,6 +124,7 @@ def simulate_point(
 
     # Double-hit tracking: (rod_idx, player_idx) of last hit
     last_hit: Optional[tuple[int, int]] = None
+    last_hit_pos: Optional[tuple[float, float]] = None  # ball pos of last active hit
 
     frames: list[Frame] = []
 
@@ -233,11 +236,14 @@ def simulate_point(
         # 4. Move ball
         # --------------------------------------------------------------
         ball_result = step_ball(ball, field, dt,
-                                ball_radius=config.BALL_RADIUS)
+                                ball_radius=config.BALL_RADIUS,
+                                pos_grid=pos_grid)
 
         # Check for goal
         if ball_result.startswith('goal:'):
             winner = int(ball_result.split(':')[1])
+            if goal_hits is not None and last_hit_pos is not None:
+                goal_hits.append((*last_hit_pos, winner))
             if record:
                 frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}'))
             return PointResult(
@@ -284,6 +290,7 @@ def simulate_point(
 
                 # Update last-hit tracking
                 last_hit = (rod_idx, player_idx)
+                last_hit_pos = (ball.x, ball.y)
                 event = 'hit'
 
                 # Only one hit per tick (first overlap wins)

@@ -15,6 +15,9 @@ find_overlapping_players(ball, field)
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
+
+import numpy as np
 
 import config
 from field import BallState, Field
@@ -45,6 +48,7 @@ def step_ball(
     friction: float = config.FRICTION,
     ball_radius: float = 0.0,
     contact: ContactParams = DEFAULT_CONTACT,
+    pos_grid: Optional[np.ndarray] = None,
 ) -> str:
     """
     Advance the ball by one tick.
@@ -73,12 +77,12 @@ def step_ball(
         sub_dt = dt / n_sub
         for _ in range(n_sub):
             result = _step_ball_inner(ball, field, sub_dt, friction,
-                                      ball_radius, contact)
+                                      ball_radius, contact, pos_grid)
             if result != 'play':
                 return result
         return 'play'
 
-    return _step_ball_inner(ball, field, dt, friction, ball_radius, contact)
+    return _step_ball_inner(ball, field, dt, friction, ball_radius, contact, pos_grid)
 
 
 def _step_ball_inner(
@@ -88,12 +92,20 @@ def _step_ball_inner(
     friction: float,
     ball_radius: float,
     contact: ContactParams,
+    pos_grid: Optional[np.ndarray] = None,
 ) -> str:
     r = ball_radius
 
     # --- Move ---
     ball.x += ball.vx * dt
     ball.y += ball.vy * dt
+
+    # --- Accumulate ball position into grid (per substep) ---
+    if pos_grid is not None:
+        ix = int(ball.x * pos_grid.shape[0] / field.depth)
+        iy = int(ball.y * pos_grid.shape[1] / field.width)
+        if 0 <= ix < pos_grid.shape[0] and 0 <= iy < pos_grid.shape[1]:
+            pos_grid[ix, iy] += dt
 
     # --- Side wall bounces (y boundaries) ---
     if ball.y <= r:
