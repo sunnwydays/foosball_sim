@@ -71,8 +71,8 @@ MAX_TICKS      = int(MAX_GAME_TIME * FPS)
 BALL_RADIUS    = 1.75     # cm — ball radius (~35 mm diameter, real foosball ball)
 FRICTION       = 10.0     # cm/s² — constant deceleration (ball slows each tick)
 STOP_THRESHOLD = 3.0      # cm/s — below this, ball counts as stopped
-BALL_MAX_SPEED = 320.0    # cm/s — absolute cap on ball speed
-HIT_SPEED      = 180.0    # cm/s — default intended shot speed
+BALL_MAX_SPEED = 260.0    # cm/s — absolute cap on ball speed
+HIT_SPEED      = 140.0    # cm/s — default intended shot speed
 
 # ---------------------------------------------------------------------------
 # Shot noise — maps accuracy/power_consistency (0-1) to distribution std devs

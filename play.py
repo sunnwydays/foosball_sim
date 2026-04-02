@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 # ---- Settings (edit these) ------------------------------------------------
 
-SEED        = 3         # RNG seed (change for different games, None for random)
+SEED        = 31         # RNG seed (change for different games, None for random)
 KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 SHOW_REACH  = True      # draw player hitbox rectangles
