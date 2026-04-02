@@ -33,6 +33,87 @@ import config
 from field import BallState, Field, Rod
 
 
+# ---------------------------------------------------------------------------
+# Module-level geometry helpers
+# ---------------------------------------------------------------------------
+
+def _reflect_through(
+    ball_x: float, ball_y: float,
+    wall_y: float,
+    target_x: float, target_y: float,
+) -> tuple[float, float]:
+    """
+    Mirror/ghost method: reflect target across wall_y, draw line from ball to
+    ghost, return the intersection point on wall_y.
+    """
+    ghost_y = 2.0 * wall_y - target_y
+    if abs(ghost_y - ball_y) < 1e-6:
+        return ball_x, wall_y
+    t = (wall_y - ball_y) / (ghost_y - ball_y)
+    return ball_x + t * (target_x - ball_x), wall_y
+
+
+def _best_wall_shot(
+    rod: Rod, ball: BallState, field: Field,
+    aim_x: float, aim_y: float,
+) -> tuple[float, float]:
+    """
+    Return the aim point (on near or far side wall) that bounces toward
+    (aim_x, aim_y). Picks the wall whose reflection gives a shot in bounds.
+    Falls back to direct aim if neither wall produces a valid shot.
+    """
+    for wall_y in (0.0, field.width):
+        ax, ay = _reflect_through(ball.x, ball.y, wall_y, aim_x, aim_y)
+        if 0.0 <= ax <= field.depth:
+            return ax, ay
+    return aim_x, aim_y
+
+
+def _best_player_deflection(
+    rod: Rod, ball: BallState, field: Field,
+    aim_x: float, aim_y: float,
+) -> tuple[float, float]:
+    """
+    Aim at the edge of the nearest opponent player so the ball deflects toward
+    (aim_x, aim_y). Uses the same mirror method with the player face as wall.
+    Falls back to direct aim if no opponent player found.
+    """
+    team = rod.team
+    if team == 0:
+        opp = [r for r in field.rods if r.team != team and r.x > rod.x]
+        opp.sort(key=lambda r: r.x)
+    else:
+        opp = [r for r in field.rods if r.team != team and r.x < rod.x]
+        opp.sort(key=lambda r: -r.x)
+
+    if not opp:
+        return aim_x, aim_y
+
+    nearest = opp[0]
+    # Try both edges of the nearest player closest to ball.y
+    best_pos = min(nearest.player_positions, key=lambda py: abs(py - ball.y))
+    best: Optional[tuple[float, float]] = None
+    for edge_y in (best_pos - nearest.width / 2, best_pos + nearest.width / 2):
+        ax, ay = _reflect_through(ball.x, ball.y, edge_y, aim_x, aim_y)
+        if 0.0 <= ax <= field.depth:
+            best = ax, ay
+            break
+    return best if best is not None else (aim_x, aim_y)
+
+
+def _project_ball_to_x(ball: BallState, target_x: float) -> Optional[float]:
+    """
+    Linear projection: return predicted ball.y when it reaches target_x.
+    Returns None if ball is stationary or moving away from target_x.
+    """
+    if ball.vx == 0:
+        return None
+    t = (target_x - ball.x) / ball.vx
+    if t < 0:
+        return None
+    return ball.y + ball.vy * t
+
+
 class Strategy(ABC):
 
     @abstractmethod
@@ -130,6 +211,58 @@ class Strategy(ABC):
             actual_speed * math.cos(actual_angle),
             actual_speed * math.sin(actual_angle),
         )
+
+    def _aim_forward(
+        self, rod: Rod, ball: BallState, field: Field
+    ) -> tuple[float, float]:
+        """Return (aim_x, aim_y) targeting the nearest friendly rod ahead (toward opponent goal)."""
+        team = rod.team
+        if team == 0:
+            ahead = [r for r in field.rods if r.team == team and r.x > rod.x]
+            ahead.sort(key=lambda r: r.x)
+        else:
+            ahead = [r for r in field.rods if r.team == team and r.x < rod.x]
+            ahead.sort(key=lambda r: -r.x)
+
+        if ahead:
+            t = ahead[0]
+            return t.x, t.y_offset + field.width / 2
+        # No friendly rod ahead — aim at goal
+        goal = field.goal_for_attacker(team)
+        return goal.x, (goal.y_min + goal.y_max) / 2
+
+    def _aim_back(
+        self, rod: Rod, ball: BallState, field: Field
+    ) -> tuple[float, float]:
+        """Return (aim_x, aim_y) targeting the nearest friendly rod behind (toward own goal)."""
+        team = rod.team
+        if team == 0:
+            behind = [r for r in field.rods if r.team == team and r.x < rod.x]
+            behind.sort(key=lambda r: -r.x)
+        else:
+            behind = [r for r in field.rods if r.team == team and r.x > rod.x]
+            behind.sort(key=lambda r: r.x)
+
+        if behind:
+            t = behind[0]
+            return t.x, t.y_offset + field.width / 2
+        return self._aim_forward(rod, ball, field)
+
+    def _aim_side(
+        self, rod: Rod, player_idx: int, ball: BallState, field: Field
+    ) -> tuple[float, float]:
+        """Return (aim_x, aim_y) targeting the nearest other player on the same rod."""
+        positions = rod.player_positions
+        if len(positions) <= 1:
+            # No other player — fall back to forward aim
+            return self._aim_forward(rod, ball, field)
+        player_y = positions[player_idx]
+        other = min(
+            (py for i, py in enumerate(positions) if i != player_idx),
+            key=lambda py: abs(py - player_y),
+        )
+        return rod.x, other
+
 
 # ---------------------------------------------------------------------------
 # SmackBall — simple baseline

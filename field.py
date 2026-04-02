@@ -58,6 +58,7 @@ class Rod:
         accuracy: float = 0.5,
         power_consistency: float = 0.5,
         movement_control: float = 0.5,
+        movement_speed:  float = config.MOVEMENT_SPEED,
         width: float = config.PLAYER_WIDTH,
         thickness: float = config.PLAYER_THICKNESS,
         rod_x_reach: float = config.ROD_X_REACH,
@@ -69,6 +70,7 @@ class Rod:
         self.accuracy          = accuracy
         self.power_consistency = power_consistency
         self.movement_control  = movement_control
+        self.movement_speed    = movement_speed
         self.width      = width
         self.thickness   = thickness
         self.rod_x_reach = rod_x_reach
@@ -197,10 +199,10 @@ class Rod:
             return
 
         direction = 1.0 if diff > 0 else -1.0
-        max_step = config.MOVEMENT_SPEED * dt
+        max_step = self.movement_speed * dt
         step = min(abs(diff), max_step)
 
-        self.vy = direction * config.MOVEMENT_SPEED
+        self.vy = direction * self.movement_speed
         self.set_offset(self.y_offset + direction * step)
 
     def reset(self) -> None:

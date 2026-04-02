@@ -120,6 +120,7 @@ SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 # Gameplay limits
 # ---------------------------------------------------------------------------
 N_HANDS = 2   # max rods a team can control simultaneously (1 to n_team_rods)
+POSSESSION_LIMIT = 8.0  # seconds — one team continuously in reach, opponent not → loses point
 
 # ---------------------------------------------------------------------------
 # Stats / heatmap

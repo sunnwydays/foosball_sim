@@ -70,6 +70,24 @@ class PointResult:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _teams_with_reach(ball: BallState, field: Field) -> set[int]:
+    """Return set of team IDs that have at least one player within reach of the ball."""
+    teams: set[int] = set()
+    for rod in field.rods:
+        if rod.up:
+            continue
+        for py in rod.player_positions:
+            if (abs(ball.x - rod._base_x) <= rod.rod_x_reach + rod.thickness / 2
+                    and abs(ball.y - py) <= rod.width / 2):
+                teams.add(rod.team)
+                break
+    return teams
+
+
+# ---------------------------------------------------------------------------
 # Core simulation
 # ---------------------------------------------------------------------------
 
@@ -158,6 +176,8 @@ def simulate_point(
                 rod.set_x_offset(tx)
                 rod.up = up
 
+    possession_timer: dict[int, float] = {0: 0.0, 1: 0.0}
+
     # --- Tick loop ---
     for tick in range(config.MAX_TICKS):
         game_time = tick * dt
@@ -238,6 +258,21 @@ def simulate_point(
         ball_result = step_ball(ball, field, dt,
                                 ball_radius=config.BALL_RADIUS,
                                 pos_grid=pos_grid)
+
+        # --- Anti-stalling checks ---
+        teams_in_reach = _teams_with_reach(ball, field)
+
+        if ball.stopped and not teams_in_reach:
+            return PointResult(winner=None, ticks=tick + 1, time=game_time + dt, frames=frames)
+
+        if len(teams_in_reach) == 1:
+            possessing = next(iter(teams_in_reach))
+            possession_timer[possessing] += dt
+            possession_timer[1 - possessing] = 0.0
+            if possession_timer[possessing] >= config.POSSESSION_LIMIT:
+                return PointResult(winner=1 - possessing, ticks=tick + 1, time=game_time + dt, frames=frames)
+        else:
+            possession_timer[0] = possession_timer[1] = 0.0
 
         # Check for goal
         if ball_result.startswith('goal:'):
