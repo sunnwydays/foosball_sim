@@ -7,7 +7,7 @@ A Strategy is called every tick and makes four decisions:
       → set of rod indices to control (up to n_hands).
       Switching to a new rod incurs SWITCH_DELAY on that rod.
 
-  choose_targets(controlled_rods, ball, field)
+  choose_pos(controlled_rods, ball, field)
       → dict of {rod_idx: (target_y, target_x, up)} for each controlled rod.
       Rods move toward target_y at MOVEMENT_SPEED. target_x sets rotation.
       up=True flips the rod up so the ball passes through.
@@ -131,7 +131,7 @@ class Strategy(ABC):
         """
 
     @abstractmethod
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,
@@ -288,7 +288,7 @@ class SmackBall(Strategy):
         sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
         return {idx for idx, _ in sorted_rods[:n_hands]}
 
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,
@@ -333,7 +333,7 @@ class AimAtGap(Strategy):
         sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
         return {idx for idx, _ in sorted_rods[:n_hands]}
 
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,
@@ -418,7 +418,7 @@ class HardOffense(Strategy):
         sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
         return {idx for idx, _ in sorted_rods[:n_hands]}
 
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,
@@ -501,7 +501,7 @@ class DefensiveWall(Strategy):
         sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
         return {idx for idx, _ in sorted_rods[:n_hands]}
 
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,
@@ -573,7 +573,7 @@ class TiltAndGap(Strategy):
         sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
         return {idx for idx, _ in sorted_rods[:n_hands]}
 
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,
@@ -687,7 +687,7 @@ class ReactiveBlock(Strategy):
         sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
         return {idx for idx, _ in sorted_rods[:n_hands]}
 
-    def choose_targets(
+    def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
         ball: BallState,

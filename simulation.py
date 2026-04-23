@@ -6,7 +6,7 @@ simulate_point() runs one point as a sequence of ticks (dt = 1/FPS).
 Tick order
 ----------
 1. Decrement timers (reaction, switch)
-2. Strategy: choose_hands → choose_targets (respecting reaction lockout)
+2. Strategy: choose_hands → choose_pos (respecting reaction lockout)
 3. Move rods toward targets (step_movement)
 4. Move ball (step_ball: velocity, friction, wall bounces)
 5. Detect player-ball overlaps → strategy: choose_hit
@@ -159,7 +159,7 @@ def simulate_point(
 
         # Set initial targets for controlled rods
         controlled = [(i, field.rods[i]) for i in initial_hands]
-        targets = strat.choose_targets(controlled, ball, field)
+        targets = strat.choose_pos(controlled, ball, field)
         for rod_idx, (ty, tx, up) in targets.items():
             rod = field.rods[rod_idx]
             rod.set_target_y(ty)
@@ -226,7 +226,7 @@ def simulate_point(
             # Choose targets (only if not in reaction lockout)
             if not ts.reacting:
                 controlled = [(i, field.rods[i]) for i in desired_hands]
-                targets = strat.choose_targets(controlled, ball, field)
+                targets = strat.choose_pos(controlled, ball, field)
                 for rod_idx, (ty, tx, up) in targets.items():
                     rod = field.rods[rod_idx]
                     rod.set_target_y(ty)
