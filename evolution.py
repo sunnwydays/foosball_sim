@@ -1,8 +1,12 @@
+from typing import Optional
+import heapq
+
 import numpy as np
 import random
 from itertools import combinations
 
-from field import Field
+import config
+from field import BallState, Field, Rod
 from monte_carlo import run_monte_carlo
 from strategy import Strategy
 
@@ -49,9 +53,97 @@ class Agent:
         self.genome: Genome = genome
         self.fitness: float = 0.0
 
-# decoder
-def genome_to_strategy(genome: Genome) -> Strategy:
-    pass
+class ParameterizedStrategy(Strategy):
+    """Strategy whose decisions are driven by a float genome vector."""
+
+    def __init__(self, genome: Genome) -> None:
+        self.genome = genome
+        self.accuracy, self.speed_consistency, self.movement_speed = _group(genome, "skill")
+        self.aim_gap, self.aim_wall, self.aim_player                = _group(genome, "shot")
+        self.pass_fwd, self.pass_back, self.pass_side               = _group(genome, "pass")
+        (self.aggression,
+         self.lift_atk, self.lift_def,
+         self.passive_x_off_atk, self.passive_x_off_def,
+         self.defensive_activity)                                   = _group(genome, "indep")
+
+    def choose_hands(
+        self,
+        team_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+        n_hands: int,
+    ) -> set[int]:
+        # Hold rods closest to the ball; aggression biases toward offensive rods
+        # Genes: aggression
+
+        team = team_rods[0][1].team
+        attack_dir = 1 if team == 0 else -1
+
+        def score(rod):
+            dist_score   = -abs(rod.x - ball.x)
+            attack_score = (rod._base_x - field.depth / 2) * attack_dir
+            return dist_score + self.aggression * attack_score
+
+        best = heapq.nlargest(n_hands, team_rods, key=lambda pair: score(pair[1]))
+        return {rod_idx for rod_idx, _ in best}
+
+    def choose_pos(
+        self,
+        controlled_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+    ) -> dict[int, tuple[float, float, bool]]:
+        # Slide controlled rods toward ball or predicted trajectory
+        # Genes: movement_speed, aggression, defensive_activity
+        
+        team = controlled_rods[0][1].team
+        attack_dir = 1 if team == 0 else -1
+
+    def choose_passive(
+        self,
+        passive_rods: list[tuple[int, Rod]],
+        ball: BallState,
+        field: Field,
+    ) -> dict[int, tuple[float, bool]]:
+        # Lean and flip uncontrolled rods based on their attacking/defending role.
+        # Genes: passive_x_off_atk, passive_x_off_def, lift_atk, lift_def
+        if not passive_rods:
+            return {}
+        
+        rod_positions = {}
+
+        team = passive_rods[0][1].team
+        attack_dir = 1 if team == 0 else -1
+
+        for rod_idx, rod in passive_rods:
+            is_attacking = (rod._base_x - field.depth / 2) * attack_dir > 0
+            if is_attacking:
+                # center at 0 to include forward and backward lean
+                x_offset = (self.passive_x_off_atk - 0.5) * 2 * config.ROD_X_REACH
+                up = self.lift_atk > (ball.x / field.depth) * attack_dir + 0.5
+            else:
+                x_offset = (self.passive_x_off_def - 0.5) * 2 * config.ROD_X_REACH
+                up = self.lift_def > (ball.x / field.depth) * attack_dir + 0.5
+
+            rod_positions[rod_idx] = x_offset, up
+        
+        return rod_positions
+    
+    def choose_hit(
+        self,
+        rod: Rod,
+        player_idx: int,
+        ball: BallState,
+        field: Field,
+    ) -> Optional[tuple[float, float]]:
+        # Sample shot vs pass decision, then aim and apply skill noise.
+        # Genes: aggression, accuracy, speed_consistency, aim_gap/wall/player, pass_fwd/back/side
+
+        team = rod.team
+        attack_dir = 1 if team == 0 else -1
+
+def _genome_to_strategy(genome: Genome) -> ParameterizedStrategy:
+    return ParameterizedStrategy(genome)
 
 def initialize_population() -> list[Agent]:
     """
@@ -77,7 +169,7 @@ def rr_tourney(population: list[Agent]) -> list[float]:
     for agent0, agent1 in combinations(population, 2):
         result = run_monte_carlo(
             Field(),
-            {0: genome_to_strategy(agent0.genome), 1: genome_to_strategy(agent1.genome)},
+            {0: _genome_to_strategy(agent0.genome), 1: _genome_to_strategy(agent1.genome)},
             n_simulations=rr_points,
         )
 
