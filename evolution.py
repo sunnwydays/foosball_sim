@@ -29,7 +29,7 @@ GENE_GROUPS = {
     "pass":  ["pass_forward", "pass_back", "pass_side"],
     "indep": ["aggression", "lift_attackers", "lift_defenders",
               "passive_x_offset_attack", "passive_x_offset_defense",
-              "defensive_activity", "track_trajectory"],
+              "defensive_activity"],
 }
 
 _OFFSETS = {}
@@ -37,7 +37,7 @@ idx = 0
 for name, genes in GENE_GROUPS.items():
     _OFFSETS[name] = (idx, idx + len(genes))
     idx += len(genes)
-GENOME_SIZE = idx  # 16
+GENOME_SIZE = idx  # 15
 
 def _group(genome: Genome, name: str) -> Genome:
     """Slice the genes belonging to a named group out of the flat genome array."""
