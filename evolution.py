@@ -1,5 +1,7 @@
 from typing import Optional
 import heapq
+import json
+import os
 
 import numpy as np
 import random
@@ -239,6 +241,19 @@ class ParameterizedStrategy(Strategy):
 def _genome_to_strategy(genome: Genome) -> ParameterizedStrategy:
     return ParameterizedStrategy(genome)
 
+def save_agent(agent: "Agent", path: str, metadata: dict | None = None) -> None:
+    obj: dict = {"genome": agent.genome.tolist()}
+    if metadata:
+        obj["metadata"] = metadata
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(obj, f, indent=2)
+
+def load_agent(path: str) -> tuple["Agent", dict]:
+    with open(path) as f:
+        obj = json.load(f)
+    return Agent(np.array(obj["genome"])), obj.get("metadata", {})
+
 def initialize_population() -> list[Agent]:
     """
     Create pop_size agents with randomized genomes.
@@ -304,7 +319,7 @@ def  _crossover(parents: list[Agent]) -> Agent:
 
 def _mutate(agent: Agent) -> Agent:
     genome = agent.genome.copy()
-    
+
     for name in GENE_GROUPS:
         lo, hi = _OFFSETS[name]
         mask = np.random.rand(hi - lo) < mutation_rate
@@ -338,11 +353,21 @@ def make_children(population: list[Agent], scores: list[float]):
 def main() -> None:
     population = initialize_population()
 
-    for _ in range(n_generations):
+    for gen in range(n_generations):
         scores = rr_tourney(population)
+        best = max(scores)
+        print(f"gen {gen:02d}  best_wr={best:.3f}  mean_wr={sum(scores)/len(scores):.3f}")
         population = make_children(population, scores)
 
-    # you get population at the end
+    print("Scoring final population...")
+    scores = rr_tourney(population)
+    ranked = sorted(zip(scores, population), reverse=True)
+
+    os.makedirs("output/agents", exist_ok=True)
+    for rank, (wr, agent) in enumerate(ranked[:5]):
+        path = f"output/agents/rank{rank}.json"
+        save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
+        print(f"  rank {rank}  wr={wr:.3f}  → {path}")
 
 if __name__ == "__main__":
     main()

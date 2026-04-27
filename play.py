@@ -19,10 +19,11 @@ SAVE_GIF    = True      # save to output/replay.gif
 SHOW_LIVE   = False     # open a matplotlib window to watch live
 TRACK_STATS = True      # show heatmap after the point
 
-TEAM_0 = "HardOffense"
-TEAM_1 = "TiltAndGap"
+TEAM_0 = "HardOffense"          # strategy name or path to a genome .json
+TEAM_1 = "TiltAndGap"           # e.g. "output/agents/rank0.json"
 
 # Skill overrides (e.g. (0.9, 0.9) for (accuracy, power_consistency), None for default)
+# Ignored for genome-based agents (skill genes are in the genome itself)
 TEAM_0_SKILL = (0.7, 0.7)
 TEAM_1_SKILL = (0.6, 0.7)
 
@@ -52,6 +53,14 @@ STRATEGIES = {
     "ReactiveBlock": ReactiveBlock,
 }
 
+def build_strategy(spec: str):
+    if spec.endswith(".json"):
+        from evolution import load_agent, ParameterizedStrategy
+        agent, meta = load_agent(spec)
+        print(f"Loaded genome from {spec}" + (f"  wr={meta['win_rate']}" if "win_rate" in meta else ""))
+        return ParameterizedStrategy(agent.genome)
+    return STRATEGIES[spec]()
+
 
 def main():
     field = Field()
@@ -67,8 +76,8 @@ def main():
                 rod.accuracy, rod.power_consistency = TEAM_1_SKILL
 
     strats = {
-        0: STRATEGIES[TEAM_0](),
-        1: STRATEGIES[TEAM_1](),
+        0: build_strategy(TEAM_0),
+        1: build_strategy(TEAM_1),
     }
 
     pos_grid  = np.zeros((int(field.depth / config.STATS_GRID_RES),
@@ -90,12 +99,14 @@ def main():
 
     # Replay
     save_path = "output/replay.gif" if SAVE_GIF else None
+    label0 = os.path.basename(TEAM_0).replace(".json", "") if TEAM_0.endswith(".json") else TEAM_0
+    label1 = os.path.basename(TEAM_1).replace(".json", "") if TEAM_1.endswith(".json") else TEAM_1
     anim = replay_point(
         field, result.frames,
         show_reach=SHOW_REACH,
         save_path=save_path,
         interval=max(1, 1000 // FPS),
-        title=f"{TEAM_0} vs {TEAM_1}",
+        title=f"{label0} vs {label1}",
     )
 
     if SHOW_LIVE:
@@ -109,7 +120,7 @@ def main():
             pos_grid /= pos_grid.max()
         _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
         draw_stats(field, pos_grid, goal_hits or [],
-                   title=f"Heatmap — {TEAM_0} vs {TEAM_1}", ax=ax)
+                   title=f"Heatmap — {label0} vs {label1}", ax=ax)
         if SHOW_LIVE:
             plt.show()
         else:
