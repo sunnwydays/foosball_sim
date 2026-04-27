@@ -72,6 +72,12 @@ class Agent:
         self.genome: Genome = genome
         self.fitness: float = 0.0
 
+    def __lt__(self, other: "Agent") -> bool:
+        return self.fitness < other.fitness
+
+    def __gt__(self, other: "Agent") -> bool:
+        return self.fitness > other.fitness
+
 class ParameterizedStrategy(Strategy):
     """Strategy whose decisions are driven by a float genome vector."""
 
