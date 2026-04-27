@@ -370,7 +370,21 @@ def main() -> None:
         print(f"  rank {rank}  wr={wr:.3f}  → {path}")
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--profile" in sys.argv:
+        import cProfile, pstats, io
+        # use small params so profiling finishes quickly
+        pop_size = 6
+        n_generations = 1
+        pr = cProfile.Profile()
+        pr.enable()
+        main()
+        pr.disable()
+        s = io.StringIO()
+        pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(25)
+        print(s.getvalue())
+    else:
+        main()
 
 
 
