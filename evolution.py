@@ -25,7 +25,7 @@ n_elite = 2
 tournament_size = 3
 n_migrate = 2 # currently unused
 
-Genome = list[float]
+Genome = np.ndarray
 
 GENE_GROUPS = {
     "skill": ["accuracy", "power_consistency", "movement_control"],
