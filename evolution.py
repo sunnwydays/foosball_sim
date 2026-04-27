@@ -23,6 +23,8 @@ n_parents = 2 # should be 2, undefined behaviour if more or less
 pop_size = 50
 n_elite = 2
 tournament_size = 3
+mutation_rate = 0.2
+mutation_strength = 0.1
 n_migrate = 2 # currently unused
 
 Genome = np.ndarray
@@ -283,13 +285,43 @@ def _get_parents(population: list[Agent], scores: list[float]):
 
     return parents
 
-def _crossover(parents: list[Agent]) -> Agent:
-    # block-level for normalized groups, gene-by-gene for indep
-    pass
+def  _crossover(parents: list[Agent]) -> Agent:
+    p0, p1 = parents[0].genome, parents[1].genome
+    child_genome = np.empty(GENOME_SIZE)
+
+    for name in GENE_GROUPS:
+        lo, hi = _OFFSETS[name]
+        if name == "indep":
+            # gene-by-gene: each gene independently from either parent
+            mask = np.random.rand(hi - lo) < 0.5
+            child_genome[lo:hi] = np.where(mask, p0[lo:hi], p1[lo:hi])
+        else:
+            # block-level: take entire normalized group from one parent
+            src = p0 if random.random() < 0.5 else p1
+            child_genome[lo:hi] = src[lo:hi]
+
+    return Agent(child_genome)
 
 def _mutate(agent: Agent) -> Agent:
-    # mutate some number of random genes by some amount
-    pass
+    genome = agent.genome.copy()
+    
+    for name in GENE_GROUPS:
+        lo, hi = _OFFSETS[name]
+        mask = np.random.rand(hi - lo) < mutation_rate
+        genome[lo:hi] += mask * np.random.normal(0, mutation_strength, hi - lo)
+
+        if name == "indep":
+            genome[lo:hi] = np.clip(genome[lo:hi], 0.0, 1.0)
+        else:
+            genome[lo:hi] = np.maximum(genome[lo:hi], 0.0)
+            total = genome[lo:hi].sum()
+            if total > 0:
+                genome[lo:hi] /= total
+            else:
+                # degenerate: all genes zeroed out, reset to uniform
+                genome[lo:hi] = np.ones(hi - lo) / (hi - lo)
+
+    return Agent(genome)
         
 # genomes -> parents -> children
 def make_children(population: list[Agent], scores: list[float]):
