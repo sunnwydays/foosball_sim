@@ -8,7 +8,7 @@ from itertools import combinations
 import config
 from field import BallState, Field, Rod
 from monte_carlo import run_monte_carlo
-from strategy import Strategy
+from strategy import Strategy, _best_wall_shot, _best_player_deflection, _project_ball_to_x
 
 # config, move this to config.py later perhaps, also capitalize
 n_generations = 20
@@ -28,10 +28,10 @@ n_migrate = 2 # currently unused
 Genome = list[float]
 
 GENE_GROUPS = {
-    "skill": ["accuracy", "speed_consistency", "movement_speed"],
+    "skill": ["accuracy", "power_consistency", "movement_control"],
     "shot":  ["aim_at_gap", "aim_off_wall", "aim_off_player"],
     "pass":  ["pass_forward", "pass_back", "pass_side"],
-    "indep": ["aggression", "lift_attackers", "lift_defenders",
+    "indep": ["aggression", "lift_attackers",
               "passive_x_offset_attack", "passive_x_offset_defense",
               "defensive_activity"],
 }
@@ -41,12 +41,27 @@ idx = 0
 for name, genes in GENE_GROUPS.items():
     _OFFSETS[name] = (idx, idx + len(genes))
     idx += len(genes)
-GENOME_SIZE = idx  # 15
+GENOME_SIZE = idx  # 14
 
 def _group(genome: Genome, name: str) -> Genome:
     """Slice the genes belonging to a named group out of the flat genome array."""
     lo, hi = _OFFSETS[name]
     return genome[lo:hi]
+
+def _possessing_team(ball: BallState, field: Field) -> Optional[int]:
+    """Return team whose rod overlaps the ball, or None if neither/both."""
+    teams: set[int] = set()
+    for rod in field.rods:
+        if rod.up:
+            continue
+        for py in rod.player_positions:
+            if (abs(ball.x - rod._base_x) <= rod.rod_x_reach + rod.thickness / 2
+                    and abs(ball.y - py) <= rod.width / 2):
+                teams.add(rod.team)
+                break
+    if len(teams) == 1:
+        return next(iter(teams))
+    return None
 
 class Agent:
     def __init__(self, genome: np.ndarray) -> None:
@@ -58,11 +73,11 @@ class ParameterizedStrategy(Strategy):
 
     def __init__(self, genome: Genome) -> None:
         self.genome = genome
-        self.accuracy, self.speed_consistency, self.movement_speed = _group(genome, "skill")
+        self.accuracy, self.power_consistency, self.movement_control = _group(genome, "skill")
         self.aim_gap, self.aim_wall, self.aim_player                = _group(genome, "shot")
         self.pass_fwd, self.pass_back, self.pass_side               = _group(genome, "pass")
         (self.aggression,
-         self.lift_atk, self.lift_def,
+         self.lift_atk,
          self.passive_x_off_atk, self.passive_x_off_def,
          self.defensive_activity)                                   = _group(genome, "indep")
 
@@ -93,11 +108,45 @@ class ParameterizedStrategy(Strategy):
         ball: BallState,
         field: Field,
     ) -> dict[int, tuple[float, float, bool]]:
-        # Slide controlled rods toward ball or predicted trajectory
-        # Genes: movement_speed, aggression, defensive_activity
-        
+        # Defending rods always track ball/trajectory. Attacking rods lerp between
+        # tracking and field center based on defensive_activity.
+        # Genes: movement_control, defensive_activity, lift_atk, lift_def
+
         team = controlled_rods[0][1].team
         attack_dir = 1 if team == 0 else -1
+        opp_has_ball = _possessing_team(ball, field) == (1 - team)
+        targets = {}
+
+        for rod_idx, rod in controlled_rods:
+            rod.movement_control = self.movement_control
+            is_attacking = (rod._base_x - field.depth / 2) * attack_dir > 0
+
+            # track projected intercept or current ball.y
+            predicted_y = _project_ball_to_x(ball, rod._base_x)
+            track_y = predicted_y if predicted_y is not None else ball.y
+
+            # - defending rods always track the ball
+            # - attacking rods lerp between tracking (defensive_activity=1) and 
+            #   field center (defensive_activity=0)
+            target_y_abs = track_y if not is_attacking else (
+                track_y * self.defensive_activity + (field.width / 2) * (1 - self.defensive_activity)
+            )
+            target_y_offset = target_y_abs - field.width / 2
+
+            # x_offset: defensive_activity=1 → max forward lean, 0.5 → neutral, 0 → lean back
+            x_offset = (self.defensive_activity - 0.5) * 2 * config.ROD_X_REACH * attack_dir
+
+            if is_attacking and opp_has_ball:
+                up = False
+            else:
+                # lift threshold compared against how far into our defensive half the ball is;
+                # (ball.x / field.depth) * attack_dir + 0.5 ranges ~0.5 (ball at own goal)
+                # to ~1.5 (ball at opponent goal): higher gene needed to lift when ball is far away
+                up = is_attacking and self.lift_atk > (ball.x / field.depth) * attack_dir + 0.5
+
+            targets[rod_idx] = (target_y_offset, x_offset, up)
+
+        return targets
 
     def choose_passive(
         self,
@@ -123,7 +172,7 @@ class ParameterizedStrategy(Strategy):
                 up = self.lift_atk > (ball.x / field.depth) * attack_dir + 0.5
             else:
                 x_offset = (self.passive_x_off_def - 0.5) * 2 * config.ROD_X_REACH
-                up = self.lift_def > (ball.x / field.depth) * attack_dir + 0.5
+                up = False
 
             rod_positions[rod_idx] = x_offset, up
         
@@ -137,10 +186,53 @@ class ParameterizedStrategy(Strategy):
         field: Field,
     ) -> Optional[tuple[float, float]]:
         # Sample shot vs pass decision, then aim and apply skill noise.
-        # Genes: aggression, accuracy, speed_consistency, aim_gap/wall/player, pass_fwd/back/side
+        # Genes: aggression, accuracy, power_consistency, aim_gap/wall/player, pass_fwd/back/side
+
+        rod.accuracy          = self.accuracy
+        rod.power_consistency = self.power_consistency
 
         team = rod.team
-        attack_dir = 1 if team == 0 else -1
+        player_y = rod.player_positions[player_idx]
+        goal = field.goal_for_attacker(team)
+        intended_speed = config.HIT_SPEED * (0.5 + 0.5 * self.aggression)
+
+        if np.random.random() < self.aggression:
+            # shoot
+            shot_weights = np.array([self.aim_gap, self.aim_wall, self.aim_player])
+            shot_weights /= shot_weights.sum()
+            shot_choice = np.random.choice(3, p=shot_weights)
+
+            aim_x = goal.x
+            aim_y = (goal.y_min + goal.y_max) / 2
+            if shot_choice == 0:
+                aim_x, aim_y = self._find_gap_target(rod, ball, field)
+            elif shot_choice == 1:
+                aim_x, aim_y = _best_wall_shot(rod, ball, field, aim_x, aim_y)
+            else:
+                if team == 0:
+                    opp_passive = [r for r in field.rods if r.team != team and r.x > rod.x and not r.controlled]
+                else:
+                    opp_passive = [r for r in field.rods if r.team != team and r.x < rod.x and not r.controlled]
+
+                if opp_passive:
+                    aim_x, aim_y = _best_player_deflection(rod, ball, field, aim_x, aim_y)
+                else:
+                    aim_x, aim_y = self._find_gap_target(rod, ball, field)
+        else:
+            # pass
+            pass_weights = np.array([self.pass_fwd, self.pass_back, self.pass_side])
+            pass_weights /= pass_weights.sum()
+            pass_choice = np.random.choice(3, p=pass_weights)
+
+            if pass_choice == 0:
+                aim_x, aim_y = self._aim_forward(rod, ball, field)
+            elif pass_choice == 1:
+                aim_x, aim_y = self._aim_back(rod, ball, field)
+            else:
+                aim_x, aim_y = self._aim_side(rod, player_idx, ball, field)
+
+        return self._apply_hit(rod, aim_x, aim_y, player_y, intended_speed)
+
 
 def _genome_to_strategy(genome: Genome) -> ParameterizedStrategy:
     return ParameterizedStrategy(genome)

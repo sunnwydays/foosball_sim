@@ -263,6 +263,44 @@ class Strategy(ABC):
         )
         return rod.x, other
 
+    def _find_gap_target(
+        self, rod: Rod, ball: BallState, field: Field
+    ) -> tuple[float, float]:
+        """Find (aim_x, aim_y) through the largest gap in the nearest opponent rod."""
+        team = rod.team
+        goal = field.goal_for_attacker(team)
+
+        if team == 0:
+            opp_rods = [r for r in field.rods if r.team != team and r.x > rod.x]
+            opp_rods.sort(key=lambda r: r.x)
+        else:
+            opp_rods = [r for r in field.rods if r.team != team and r.x < rod.x]
+            opp_rods.sort(key=lambda r: -r.x)
+
+        if not opp_rods:
+            return goal.x, (goal.y_min + goal.y_max) / 2
+
+        nearest = opp_rods[0]
+        positions = sorted(nearest.player_positions)
+        reach = nearest.width / 2
+
+        gaps: list[tuple[float, float]] = []
+        if positions[0] - reach > 0:
+            gaps.append((0.0, positions[0] - reach))
+        for i in range(len(positions) - 1):
+            lo = positions[i] + reach
+            hi = positions[i + 1] - reach
+            if hi > lo:
+                gaps.append((lo, hi))
+        if positions[-1] + reach < field.width:
+            gaps.append((positions[-1] + reach, field.width))
+
+        if gaps:
+            best = max(gaps, key=lambda g: g[1] - g[0])
+            return nearest.x, (best[0] + best[1]) / 2
+
+        return goal.x, (goal.y_min + goal.y_max) / 2
+
 
 # ---------------------------------------------------------------------------
 # SmackBall — simple baseline
@@ -344,48 +382,6 @@ class AimAtGap(Strategy):
             target_y = ball.y - field.width / 2
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
-
-    def _find_gap_target(
-        self, rod: Rod, ball: BallState, field: Field
-    ) -> tuple[float, float]:
-        """Find the (aim_x, aim_y) through the largest gap in the nearest defender."""
-        team = rod.team
-        goal = field.goal_for_attacker(team)
-
-        if team == 0:
-            opp_rods = [r for r in field.rods
-                        if r.team != team and r.x > rod.x]
-            opp_rods.sort(key=lambda r: r.x)
-        else:
-            opp_rods = [r for r in field.rods
-                        if r.team != team and r.x < rod.x]
-            opp_rods.sort(key=lambda r: -r.x)
-
-        if not opp_rods:
-            return goal.x, (goal.y_min + goal.y_max) / 2
-
-        nearest = opp_rods[0]
-        positions = sorted(nearest.player_positions)
-        reach = nearest.width / 2
-
-        gaps: list[tuple[float, float]] = []
-        first_top = positions[0] - reach
-        if first_top > 0:
-            gaps.append((0.0, first_top))
-        for i in range(len(positions) - 1):
-            lo = positions[i] + reach
-            hi = positions[i + 1] - reach
-            if hi > lo:
-                gaps.append((lo, hi))
-        last_bot = positions[-1] + reach
-        if last_bot < field.width:
-            gaps.append((last_bot, field.width))
-
-        if gaps:
-            best = max(gaps, key=lambda g: g[1] - g[0])
-            return nearest.x, (best[0] + best[1]) / 2
-
-        return goal.x, (goal.y_min + goal.y_max) / 2
 
     def choose_hit(
         self,
