@@ -21,7 +21,7 @@ N_PLATEAU = 5
 
 RR_POINTS = 8
 MIN_HOF_WR = 0.2
-N_PARENTS = 2 # should be 2, undefined behaviour if more or less
+N_PARENTS = 2 # undefined behaviour if != 2
 POP_SIZE = 50
 N_ELITE = 2
 TOURNAMENT_SIZE = 3
