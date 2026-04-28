@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field as dc_field
 from typing import Optional
 import heapq
 import json
@@ -13,7 +14,7 @@ from monte_carlo import run_monte_carlo
 from strategy import Strategy, _best_wall_shot, _best_player_deflection, _project_ball_to_x
 
 # config, move this to config.py later perhaps
-N_GENERATIONS = 20
+N_GENERATIONS = 50
 # i think we use either this OR N_GENERATIONS? if improvement is less than this
 # amount for N_PLATEAU generations, then stop
 T_PLATEAU = 0.01
@@ -47,6 +48,15 @@ for name, genes in GENE_GROUPS.items():
     _OFFSETS[name] = (idx, idx + len(genes))
     idx += len(genes)
 GENOME_SIZE = idx  # 14
+
+@dataclass
+class EvolutionHistory:
+    gen:          list[int]   = dc_field(default_factory=list)
+    best_wr:      list[float] = dc_field(default_factory=list)
+    mean_wr:      list[float] = dc_field(default_factory=list)
+    min_wr:       list[float] = dc_field(default_factory=list)
+    std_wr:       list[float] = dc_field(default_factory=list)
+    best_genomes: list        = dc_field(default_factory=list)  # list of np.ndarray (GENOME_SIZE,)
 
 def _group(genome: Genome, name: str) -> Genome:
     """Slice the genes belonging to a named group out of the flat genome array."""
@@ -359,31 +369,47 @@ def make_children(population: list[Agent], scores: list[float]):
         parents = _get_parents(population, scores)
         child = _mutate(_crossover(parents))
         children.append(child)
-    
+
     return children
 
 
+def _record(history: EvolutionHistory, gen: int, scores: list[float], population: list["Agent"]) -> None:
+    arr = np.array(scores)
+    best_idx = int(np.argmax(arr))
+    history.gen.append(gen)
+    history.best_wr.append(float(arr.max()))
+    history.mean_wr.append(float(arr.mean()))
+    history.min_wr.append(float(arr.min()))
+    history.std_wr.append(float(arr.std()))
+    history.best_genomes.append(population[best_idx].genome.copy())
+
 def main() -> None:
     import time
+    history = EvolutionHistory()
     population = initialize_population()
 
     for gen in range(N_GENERATIONS):
         t0 = time.perf_counter()
         scores = rr_tourney(population)
         elapsed = time.perf_counter() - t0
-        best = max(scores)
-        print(f"gen {gen:02d}  best_wr={best:.3f}  mean_wr={sum(scores)/len(scores):.3f}  ({elapsed:.1f}s)")
+        _record(history, gen, scores, population)
+        print(f"gen {gen:02d}  best_wr={history.best_wr[-1]:.3f}  mean_wr={history.mean_wr[-1]:.3f}  ({elapsed:.1f}s)")
         population = make_children(population, scores)
 
     print("Scoring final population...")
     scores = rr_tourney(population)
-    ranked = sorted(zip(scores, population), reverse=True)
+    _record(history, N_GENERATIONS, scores, population)
+
+    ranked = sorted(zip(scores, population), key=lambda x: x[0], reverse=True)
 
     os.makedirs("output/agents", exist_ok=True)
     for rank, (wr, agent) in enumerate(ranked[:5]):
         path = f"output/agents/rank{rank}.json"
         save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
         print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
+
+    from visualization import plot_evolution_stats
+    plot_evolution_stats(history, save_path="output/evolution_stats.png")
 
 if __name__ == "__main__":
     import sys

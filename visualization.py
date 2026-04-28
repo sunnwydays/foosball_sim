@@ -342,3 +342,107 @@ def draw_stats(
     ax.set_title(title, color="white", pad=8)
     ax.get_figure().tight_layout()
     return ax
+
+
+# ---------------------------------------------------------------------------
+# Evolution analytics visualization
+# ---------------------------------------------------------------------------
+
+def plot_evolution_stats(history, save_path: Optional[str] = None):
+    """
+    Render a 3x2 multi-panel figure summarizing an evolution run.
+
+    Parameters
+    ----------
+    history   : EvolutionHistory instance from evolution.py.
+    save_path : if set, save PNG to this path (150 dpi).
+
+    Returns
+    -------
+    matplotlib Figure
+    """
+    from evolution import GENE_GROUPS, _OFFSETS
+
+    DARK_BG = "#1a1a1a"
+    AXES_BG = "#222222"
+
+    _SHOT_COLORS  = ["#4C9BE8", "#E8724C", "#4CE87A"]
+    _SKILL_COLORS = ["#f5f542", "#E84C9B", "#9B4CE8"]
+    _PASS_COLORS  = ["#4CE8C9", "#E8C94C", "#E84C4C"]
+    _INDEP_COLORS = ["#f5f542", "#4CE87A", "#E84C9B", "#4C9BE8", "#E8724C"]
+
+    gens     = history.gen
+    genomes  = np.array(history.best_genomes)   # (n_gens, GENOME_SIZE)
+    mean_arr = np.array(history.mean_wr)
+    std_arr  = np.array(history.std_wr)
+
+    fig, axes = plt.subplots(3, 2, figsize=(16, 12))
+    fig.patch.set_facecolor(DARK_BG)
+    fig.suptitle("Evolution Analytics", color="white", fontsize=16, fontweight="bold")
+
+    def _style(ax, title, ylabel="", ylim=None):
+        ax.set_facecolor(AXES_BG)
+        ax.set_title(title, color="white", fontsize=11, pad=6)
+        ax.set_xlabel("Generation", color="#aaaaaa", fontsize=9)
+        ax.set_ylabel(ylabel, color="#aaaaaa", fontsize=9)
+        ax.tick_params(colors="white", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#444444")
+        ax.grid(axis="y", color="white", alpha=0.12, linewidth=0.5)
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+        ax.legend(fontsize=8, framealpha=0.35, labelcolor="white",
+                  facecolor="#333333", edgecolor="#555555")
+
+    # (0,0) Fitness Trajectory
+    ax = axes[0, 0]
+    ax.plot(gens, history.best_wr, color="#4C9BE8", lw=2,   label="best")
+    ax.plot(gens, history.mean_wr, color="white",   lw=1.5, label="mean", linestyle="--")
+    ax.plot(gens, history.min_wr,  color="#E8724C", lw=1,   label="min",  linestyle=":")
+    ax.fill_between(gens, mean_arr - std_arr, mean_arr + std_arr, alpha=0.15, color="white")
+    _style(ax, "Fitness Trajectory", ylabel="Win Rate")
+
+    # (0,1) Shot Composition
+    ax = axes[0, 1]
+    lo, _ = _OFFSETS["shot"]
+    for i, (name, color) in enumerate(zip(GENE_GROUPS["shot"], _SHOT_COLORS)):
+        ax.plot(gens, genomes[:, lo + i], color=color, lw=1.5, label=name)
+    _style(ax, "Shot Composition — Best Agent", ylabel="Weight")
+
+    # (1,0) Skill Allocation
+    ax = axes[1, 0]
+    lo, _ = _OFFSETS["skill"]
+    for i, (name, color) in enumerate(zip(GENE_GROUPS["skill"], _SKILL_COLORS)):
+        ax.plot(gens, genomes[:, lo + i], color=color, lw=1.5, label=name)
+    _style(ax, "Skill Allocation — Best Agent", ylabel="Weight")
+
+    # (1,1) Pass Composition
+    ax = axes[1, 1]
+    lo, _ = _OFFSETS["pass"]
+    for i, (name, color) in enumerate(zip(GENE_GROUPS["pass"], _PASS_COLORS)):
+        ax.plot(gens, genomes[:, lo + i], color=color, lw=1.5, label=name)
+    _style(ax, "Pass Composition — Best Agent", ylabel="Weight")
+
+    # (2,0) Independent Genes
+    ax = axes[2, 0]
+    lo, _ = _OFFSETS["indep"]
+    for i, (name, color) in enumerate(zip(GENE_GROUPS["indep"], _INDEP_COLORS)):
+        ax.plot(gens, genomes[:, lo + i], color=color, lw=1.5, label=name)
+    _style(ax, "Independent Genes — Best Agent", ylabel="Value [0, 1]", ylim=(0, 1))
+
+    # (2,1) Population Diversity
+    ax = axes[2, 1]
+    ax.plot(gens, history.std_wr, color="#9B4CE8", lw=2, label="std(win_rate)")
+    ax.fill_between(gens, 0, history.std_wr, alpha=0.2, color="#9B4CE8")
+    _style(ax, "Population Diversity", ylabel="Std Dev of Win Rates")
+
+    fig.tight_layout(rect=[0, 0, 1, 0.97], pad=2.0)
+
+    if save_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(save_path) or ".", exist_ok=True)
+        fig.savefig(save_path, dpi=150, facecolor=DARK_BG)
+        print(f"Saved evolution stats to {save_path}")
+        _os.startfile(_os.path.abspath(save_path))
+
+    return fig
