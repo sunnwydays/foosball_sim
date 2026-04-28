@@ -28,6 +28,7 @@ tournament_size = 3
 mutation_rate = 0.2
 mutation_strength = 0.1
 n_migrate = 2 # currently unused
+n_workers = 0   # 0 = use all CPU cores
 
 Genome = np.ndarray
 
@@ -244,9 +245,6 @@ class ParameterizedStrategy(Strategy):
         return self._apply_hit(rod, aim_x, aim_y, player_y, intended_speed)
 
 
-def _genome_to_strategy(genome: Genome) -> ParameterizedStrategy:
-    return ParameterizedStrategy(genome)
-
 def save_agent(agent: "Agent", path: str, metadata: dict | None = None) -> None:
     obj: dict = {"genome": agent.genome.tolist()}
     if metadata:
@@ -277,23 +275,32 @@ def initialize_population() -> list[Agent]:
         population.append(Agent(np.concatenate(parts)))
     return population
 
+def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]:
+    g0, g1 = args
+    result = run_monte_carlo(
+        Field(),
+        {0: ParameterizedStrategy(g0), 1: ParameterizedStrategy(g1)},
+        n_simulations=rr_points,
+    )
+    return result.team0_wins, result.team1_wins, result.n_simulations
+
 def rr_tourney(population: list[Agent]) -> list[float]:
-    wins = {agent: 0 for agent in population}
-    games = {agent: 0 for agent in population}
+    from multiprocessing import Pool
+    n = len(population)
+    pairs = list(combinations(range(n), 2))
+    args = [(population[i].genome, population[j].genome) for i, j in pairs]
 
-    for agent0, agent1 in combinations(population, 2):
-        result = run_monte_carlo(
-            Field(),
-            {0: _genome_to_strategy(agent0.genome), 1: _genome_to_strategy(agent1.genome)},
-            n_simulations=rr_points,
-        )
+    workers = n_workers if n_workers > 0 else None  # None → cpu_count()
+    with Pool(workers) as pool:
+        results = pool.map(_matchup_worker, args)
 
-        wins[agent0] += result.team0_wins
-        wins[agent1] += result.team1_wins
-        games[agent0] += result.n_simulations
-        games[agent1] += result.n_simulations
+    wins  = [0] * n
+    games = [0] * n
+    for (i, j), (w0, w1, g) in zip(pairs, results):
+        wins[i]  += w0;  wins[j]  += w1
+        games[i] += g;   games[j] += g
 
-    return [wins[a] / games[a] for a in population]
+    return [wins[i] / games[i] for i in range(n)]
 
 def _get_parents(population: list[Agent], scores: list[float]):
     parents = []
@@ -357,12 +364,15 @@ def make_children(population: list[Agent], scores: list[float]):
 
 
 def main() -> None:
+    import time
     population = initialize_population()
 
     for gen in range(n_generations):
+        t0 = time.perf_counter()
         scores = rr_tourney(population)
+        elapsed = time.perf_counter() - t0
         best = max(scores)
-        print(f"gen {gen:02d}  best_wr={best:.3f}  mean_wr={sum(scores)/len(scores):.3f}")
+        print(f"gen {gen:02d}  best_wr={best:.3f}  mean_wr={sum(scores)/len(scores):.3f}  ({elapsed:.1f}s)")
         population = make_children(population, scores)
 
     print("Scoring final population...")
@@ -373,7 +383,7 @@ def main() -> None:
     for rank, (wr, agent) in enumerate(ranked[:5]):
         path = f"output/agents/rank{rank}.json"
         save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
-        print(f"  rank {rank}  wr={wr:.3f}  → {path}")
+        print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
 
 if __name__ == "__main__":
     import sys
