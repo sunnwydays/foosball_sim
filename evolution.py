@@ -12,23 +12,23 @@ from field import BallState, Field, Rod
 from monte_carlo import run_monte_carlo
 from strategy import Strategy, _best_wall_shot, _best_player_deflection, _project_ball_to_x
 
-# config, move this to config.py later perhaps, also capitalize
-n_generations = 20
-# i think we use either this OR n_generations? if improvement is less than this 
-# amount for n_plateau generations, then stop
-t_plateau = 0.01 
-n_plateau = 5
+# config, move this to config.py later perhaps
+N_GENERATIONS = 20
+# i think we use either this OR N_GENERATIONS? if improvement is less than this
+# amount for N_PLATEAU generations, then stop
+T_PLATEAU = 0.01
+N_PLATEAU = 5
 
-rr_points = 8
-min_hof_wr = 0.2
-n_parents = 2 # should be 2, undefined behaviour if more or less
-pop_size = 50
-n_elite = 2
-tournament_size = 3
-mutation_rate = 0.2
-mutation_strength = 0.1
-n_migrate = 2 # currently unused
-n_workers = 0   # 0 = use all CPU cores
+RR_POINTS = 8
+MIN_HOF_WR = 0.2
+N_PARENTS = 2 # should be 2, undefined behaviour if more or less
+POP_SIZE = 50
+N_ELITE = 2
+TOURNAMENT_SIZE = 3
+MUTATION_RATE = 0.2
+MUTATION_STRENGTH = 0.1
+N_MIGRATE = 2 # currently unused
+N_WORKERS = 0   # 0 = use all CPU cores
 
 Genome = np.ndarray
 
@@ -260,12 +260,12 @@ def load_agent(path: str) -> tuple["Agent", dict]:
 
 def initialize_population() -> list[Agent]:
     """
-    Create pop_size agents with randomized genomes.
+    Create POP_SIZE agents with randomized genomes.
     Normalized groups (skill, shot, pass) are sampled from a Dirichlet
     distribution so they sum to 1. Independent genes are uniform [0, 1].
     """
     population = []
-    for _ in range(pop_size):
+    for _ in range(POP_SIZE):
         parts = []
         for name, genes in GENE_GROUPS.items():
             if name == "indep":
@@ -280,7 +280,7 @@ def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]
     result = run_monte_carlo(
         Field(),
         {0: ParameterizedStrategy(g0), 1: ParameterizedStrategy(g1)},
-        n_simulations=rr_points,
+        n_simulations=RR_POINTS,
     )
     return result.team0_wins, result.team1_wins, result.n_simulations
 
@@ -290,7 +290,7 @@ def rr_tourney(population: list[Agent]) -> list[float]:
     pairs = list(combinations(range(n), 2))
     args = [(population[i].genome, population[j].genome) for i, j in pairs]
 
-    workers = n_workers if n_workers > 0 else None  # None → cpu_count()
+    workers = N_WORKERS if N_WORKERS > 0 else None  # None → cpu_count()
     with Pool(workers) as pool:
         results = pool.map(_matchup_worker, args)
 
@@ -306,8 +306,8 @@ def _get_parents(population: list[Agent], scores: list[float]):
     parents = []
 
     # tournament selection
-    for _ in range(n_parents):
-        candidates = random.sample(range(pop_size), tournament_size)
+    for _ in range(N_PARENTS):
+        candidates = random.sample(range(POP_SIZE), TOURNAMENT_SIZE)
         best = max(candidates, key=lambda i: scores[i])
         parents.append(population[best])
 
@@ -335,8 +335,8 @@ def _mutate(agent: Agent) -> Agent:
 
     for name in GENE_GROUPS:
         lo, hi = _OFFSETS[name]
-        mask = np.random.rand(hi - lo) < mutation_rate
-        genome[lo:hi] += mask * np.random.normal(0, mutation_strength, hi - lo)
+        mask = np.random.rand(hi - lo) < MUTATION_RATE
+        genome[lo:hi] += mask * np.random.normal(0, MUTATION_STRENGTH, hi - lo)
 
         if name == "indep":
             genome[lo:hi] = np.clip(genome[lo:hi], 0.0, 1.0)
@@ -355,7 +355,7 @@ def _mutate(agent: Agent) -> Agent:
 def make_children(population: list[Agent], scores: list[float]):
     children = []
 
-    for _ in range(pop_size):
+    for _ in range(POP_SIZE):
         parents = _get_parents(population, scores)
         child = _mutate(_crossover(parents))
         children.append(child)
@@ -367,7 +367,7 @@ def main() -> None:
     import time
     population = initialize_population()
 
-    for gen in range(n_generations):
+    for gen in range(N_GENERATIONS):
         t0 = time.perf_counter()
         scores = rr_tourney(population)
         elapsed = time.perf_counter() - t0
@@ -390,8 +390,8 @@ if __name__ == "__main__":
     if "--profile" in sys.argv:
         import cProfile, pstats, io
         # use small params so profiling finishes quickly
-        pop_size = 6
-        n_generations = 1
+        POP_SIZE = 6
+        N_GENERATIONS = 1
         pr = cProfile.Profile()
         pr.enable()
         main()
