@@ -166,13 +166,14 @@ class Rod:
         """Slide rod to x `offset`, clamping within rotation bounds."""
         self.x_offset = max(self._x_slide_min, min(self._x_slide_max, offset))
 
-    def player_in_box(self, x: float, y: float) -> Optional[int]:
+    def player_in_box(self, x: float, y: float, ball_radius: float = 0.0) -> Optional[int]:
         """
         Return the index of the player whose 2D bounding box covers (x, y),
-        or None.
+        or None. Pass ball_radius to check edge-to-edge contact.
         """
         for i, py in enumerate(self.player_positions):
-            if abs(x - self._base_x) <= self.rod_x_reach + self.thickness / 2 and abs(y - py) <= self.width / 2:
+            if (abs(x - self._base_x) <= self.rod_x_reach + self.thickness / 2 + ball_radius
+                    and abs(y - py) <= self.width / 2 + ball_radius):
                 return i
         return None
 

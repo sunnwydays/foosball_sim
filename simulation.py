@@ -74,16 +74,14 @@ class PointResult:
 # ---------------------------------------------------------------------------
 
 def _teams_with_reach(ball: BallState, field: Field) -> set[int]:
-    """Return set of team IDs that have at least one player within reach of the ball."""
+    """Return set of team IDs that have at least one rod within x reach of the ball.
+    Y is excluded — a rod can always slide to cover any ball y position."""
     teams: set[int] = set()
     for rod in field.rods:
         if rod.up:
             continue
-        for py in rod.player_positions:
-            if (abs(ball.x - rod._base_x) <= rod.rod_x_reach + rod.thickness / 2
-                    and abs(ball.y - py) <= rod.width / 2):
-                teams.add(rod.team)
-                break
+        if abs(ball.x - rod._base_x) <= rod.rod_x_reach + rod.thickness / 2 + config.BALL_RADIUS:
+            teams.add(rod.team)
     return teams
 
 

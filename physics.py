@@ -247,7 +247,7 @@ def find_overlapping_players(
     for rod_idx, rod in enumerate(field.rods):
         if rod.up:
             continue
-        player_idx = rod.player_in_box(ball.x, ball.y)
+        player_idx = rod.player_in_box(ball.x, ball.y, ball_radius=config.BALL_RADIUS)
         if player_idx is not None:
             hits.append((rod_idx, player_idx))
     return hits
