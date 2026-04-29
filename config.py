@@ -83,14 +83,14 @@ HIT_SPEED      = 140.0    # cm/s — default intended shot speed
 #   power_consistency=0  → MAX_SPEED_STD  (very variable speed)
 #   power_consistency=1  → MIN_SPEED_STD  (very consistent speed)
 # ---------------------------------------------------------------------------
-MIN_ANGLE_STD = math.radians(3)
-MAX_ANGLE_STD = math.radians(45)
+MIN_ANGLE_STD = math.radians(4)
+MAX_ANGLE_STD = math.radians(25)
 
 MIN_SPEED_STD =  3.0   # cm/s
 MAX_SPEED_STD = 40.0   # cm/s
 
-MIN_MOVEMENT_STD = 0.2   # cm — at movement_control=1 (precise positioning)
-MAX_MOVEMENT_STD = 3.0   # cm — at movement_control=0 (sloppy positioning)
+MIN_MOVEMENT_STD = 0.3   # cm — at movement_control=1 (precise positioning)
+MAX_MOVEMENT_STD = 2.0   # cm — at movement_control=0 (sloppy positioning)
 
 # ---------------------------------------------------------------------------
 # Passive player contact — ball hitting an uncontrolled rod's player
@@ -113,7 +113,7 @@ MOVEMENT_SPEED = 150.0     # cm/s — max rod slide speed toward target_y
 # ---------------------------------------------------------------------------
 # Timing parameters (defaults — can be overridden per team)
 # ---------------------------------------------------------------------------
-REACTION_TIME  = 0.20     # seconds — delay before opponent can change direction after a hit
+REACTION_TIME  = 0.30     # seconds — delay before opponent can change direction after a hit
 SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 
 # ---------------------------------------------------------------------------
