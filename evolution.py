@@ -20,7 +20,7 @@ N_GENERATIONS = 50
 T_PLATEAU = 0.01
 N_PLATEAU = 5
 
-RR_POINTS = 8
+RR_POINTS = 16
 MIN_HOF_WR = 0.2
 N_PARENTS = 2 # undefined behaviour if != 2
 POP_SIZE = 50
@@ -300,7 +300,7 @@ def rr_tourney(population: list[Agent]) -> list[float]:
     pairs = list(combinations(range(n), 2))
     args = [(population[i].genome, population[j].genome) for i, j in pairs]
 
-    workers = N_WORKERS if N_WORKERS > 0 else None  # None → cpu_count()
+    workers = N_WORKERS if N_WORKERS > 0 else None  # None -> cpu_count()
     with Pool(workers) as pool:
         results = pool.map(_matchup_worker, args)
 
@@ -363,9 +363,11 @@ def _mutate(agent: Agent) -> Agent:
         
 # genomes -> parents -> children
 def make_children(population: list[Agent], scores: list[float]):
-    children = []
+    elite_idx = sorted(range(len(scores)), key=lambda i: scores[i],
+                       reverse=True)[:N_ELITE]
+    children = [population[i] for i in elite_idx]
 
-    for _ in range(POP_SIZE):
+    for _ in range(POP_SIZE - N_ELITE):
         parents = _get_parents(population, scores)
         child = _mutate(_crossover(parents))
         children.append(child)
@@ -434,7 +436,6 @@ if __name__ == "__main__":
 # ---------   to add on after basics done   -------------
 # -------------------------------------------------------
 
-# - elites; first learn what problem it solves
 # - island model; first learn what problem it solves
 # - MAP-Elites; learn what problem it solves
 
