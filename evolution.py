@@ -11,7 +11,8 @@ from itertools import combinations
 import config
 from field import BallState, Field, Rod
 from monte_carlo import run_monte_carlo
-from strategy import Strategy, _best_wall_shot, _best_player_deflection, _project_ball_to_x
+from strategy import (Strategy, _best_wall_shot, _best_player_deflection, _project_ball_to_x,
+                      SmackBall, AimAtGap, HardOffense, DefensiveWall, TiltAndGap, ReactiveBlock)
 
 # config, move this to config.py later perhaps
 N_GENERATIONS = 50
@@ -21,6 +22,7 @@ T_PLATEAU = 0.01
 N_PLATEAU = 5
 
 RR_POINTS = 16
+BENCHMARK_POINTS = 100
 MIN_HOF_WR = 0.2
 N_PARENTS = 2 # undefined behaviour if != 2
 POP_SIZE = 50
@@ -409,6 +411,20 @@ def main() -> None:
         path = f"output/agents/rank{rank}.json"
         save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
         print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
+
+    print("\nBenchmark (rank 0 vs hardcoded strategies):")
+    best_strat = ParameterizedStrategy(ranked[0][1].genome)
+    for name, strat in [
+        ("SmackBall",     SmackBall()),
+        ("AimAtGap",      AimAtGap()),
+        ("HardOffense",   HardOffense()),
+        ("DefensiveWall", DefensiveWall()),
+        ("TiltAndGap",    TiltAndGap()),
+        ("ReactiveBlock", ReactiveBlock()),
+    ]:
+        res = run_monte_carlo(Field(), {0: best_strat, 1: strat}, n_simulations=BENCHMARK_POINTS)
+        wr = res.team0_wins / res.n_simulations
+        print(f"  vs {name:<16}  wr={wr:.3f}")
 
     from visualization import plot_evolution_stats
     plot_evolution_stats(history, save_path="output/evolution_stats.png")
