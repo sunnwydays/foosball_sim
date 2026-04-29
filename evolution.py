@@ -27,7 +27,7 @@ POP_SIZE = 50
 N_ELITE = 2
 TOURNAMENT_SIZE = 3
 MUTATION_RATE = 0.2
-MUTATION_STRENGTH = 0.1
+MUTATION_STRENGTH = {"skill": 0.06, "shot": 0.13, "pass": 0.13, "indep": 0.08}
 N_MIGRATE = 2 # currently unused
 N_WORKERS = 0   # 0 = use all CPU cores
 
@@ -346,7 +346,7 @@ def _mutate(agent: Agent) -> Agent:
     for name in GENE_GROUPS:
         lo, hi = _OFFSETS[name]
         mask = np.random.rand(hi - lo) < MUTATION_RATE
-        genome[lo:hi] += mask * np.random.normal(0, MUTATION_STRENGTH, hi - lo)
+        genome[lo:hi] += mask * np.random.normal(0, MUTATION_STRENGTH[name], hi - lo)
 
         if name == "indep":
             genome[lo:hi] = np.clip(genome[lo:hi], 0.0, 1.0)
