@@ -39,7 +39,8 @@ GENE_GROUPS = {
     "skill": ["accuracy", "power_consistency", "movement_control"],
     "shot":  ["aim_at_gap", "aim_off_wall", "aim_off_player"],
     "pass":  ["pass_forward", "pass_back", "pass_side"],
-    "indep": ["aggression", "lift_attackers",
+    "indep": ["offensive_bias", "shot_rate", "shot_speed",
+              "lift_attackers",
               "passive_x_offset_attack", "passive_x_offset_defense",
               "defensive_activity"],
 }
@@ -49,7 +50,7 @@ idx = 0
 for name, genes in GENE_GROUPS.items():
     _OFFSETS[name] = (idx, idx + len(genes))
     idx += len(genes)
-GENOME_SIZE = idx  # 14
+GENOME_SIZE = idx  # 16
 
 @dataclass
 class EvolutionHistory:
@@ -99,7 +100,7 @@ class ParameterizedStrategy(Strategy):
         self.accuracy, self.power_consistency, self.movement_control = _group(genome, "skill")
         self.aim_gap, self.aim_wall, self.aim_player                = _group(genome, "shot")
         self.pass_fwd, self.pass_back, self.pass_side               = _group(genome, "pass")
-        (self.aggression,
+        (self.offensive_bias, self.shot_rate, self.shot_speed,
          self.lift_atk,
          self.passive_x_off_atk, self.passive_x_off_def,
          self.defensive_activity)                                   = _group(genome, "indep")
@@ -111,8 +112,8 @@ class ParameterizedStrategy(Strategy):
         field: Field,
         n_hands: int,
     ) -> set[int]:
-        # Hold rods closest to the ball; aggression biases toward offensive rods
-        # Genes: aggression
+        # Hold rods closest to the ball; offensive_bias biases toward offensive rods
+        # Genes: offensive_bias
 
         team = team_rods[0][1].team
         attack_dir = 1 if team == 0 else -1
@@ -120,7 +121,7 @@ class ParameterizedStrategy(Strategy):
         def score(rod):
             dist_score   = -abs(rod.x - ball.x)
             attack_score = (rod._base_x - field.depth / 2) * attack_dir
-            return dist_score + self.aggression * attack_score
+            return dist_score + self.offensive_bias * attack_score
 
         best = heapq.nlargest(n_hands, team_rods, key=lambda pair: score(pair[1]))
         return {rod_idx for rod_idx, _ in best}
@@ -209,7 +210,7 @@ class ParameterizedStrategy(Strategy):
         field: Field,
     ) -> Optional[tuple[float, float]]:
         # Sample shot vs pass decision, then aim and apply skill noise.
-        # Genes: aggression, accuracy, power_consistency, aim_gap/wall/player, pass_fwd/back/side
+        # Genes: shot_rate, shot_speed, accuracy, power_consistency, aim_gap/wall/player, pass_fwd/back/side
 
         rod.accuracy          = self.accuracy
         rod.power_consistency = self.power_consistency
@@ -217,9 +218,9 @@ class ParameterizedStrategy(Strategy):
         team = rod.team
         player_y = rod.player_positions[player_idx]
         goal = field.goal_for_attacker(team)
-        intended_speed = config.HIT_SPEED * (0.5 + 0.5 * self.aggression)
+        intended_speed = config.HIT_SPEED * (0.5 + 0.5 * self.shot_speed)
 
-        if np.random.random() < self.aggression:
+        if np.random.random() < self.shot_rate:
             # shoot
             shot_weights = np.array([self.aim_gap, self.aim_wall, self.aim_player])
             shot_weights /= shot_weights.sum()
