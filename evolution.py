@@ -66,20 +66,6 @@ def _group(genome: Genome, name: str) -> Genome:
     lo, hi = _OFFSETS[name]
     return genome[lo:hi]
 
-def _possessing_team(ball: BallState, field: Field) -> Optional[int]:
-    """Return team whose rod overlaps the ball, or None if neither/both."""
-    teams: set[int] = set()
-    for rod in field.rods:
-        if rod.up:
-            continue
-        for py in rod.player_positions:
-            if (abs(ball.x - rod._base_x) <= rod.rod_x_reach + rod.thickness / 2
-                    and abs(ball.y - py) <= rod.width / 2):
-                teams.add(rod.team)
-                break
-    if len(teams) == 1:
-        return next(iter(teams))
-    return None
 
 class Agent:
     def __init__(self, genome: np.ndarray) -> None:
@@ -134,11 +120,10 @@ class ParameterizedStrategy(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         # Defending rods always track ball/trajectory. Attacking rods lerp between
         # tracking and field center based on defensive_activity.
-        # Genes: movement_control, defensive_activity, lift_atk, lift_def
+        # Genes: movement_control, defensive_activity, lift_atk
 
         team = controlled_rods[0][1].team
         attack_dir = 1 if team == 0 else -1
-        opp_has_ball = _possessing_team(ball, field) == (1 - team)
         targets = {}
 
         for rod_idx, rod in controlled_rods:
@@ -160,13 +145,7 @@ class ParameterizedStrategy(Strategy):
             # x_offset: defensive_activity=1 → max forward lean, 0.5 → neutral, 0 → lean back
             x_offset = (self.defensive_activity - 0.5) * 2 * config.ROD_X_REACH * attack_dir
 
-            if is_attacking and opp_has_ball:
-                up = False
-            else:
-                # lift threshold compared against how far into our defensive half the ball is;
-                # (ball.x / field.depth) * attack_dir + 0.5 ranges ~0.5 (ball at own goal)
-                # to ~1.5 (ball at opponent goal): higher gene needed to lift when ball is far away
-                up = is_attacking and self.lift_atk > (ball.x / field.depth) * attack_dir + 0.5
+            up = False  # never lift a rod you're actively controlling
 
             targets[rod_idx] = (target_y_offset, x_offset, up)
 
@@ -179,7 +158,7 @@ class ParameterizedStrategy(Strategy):
         field: Field,
     ) -> dict[int, tuple[float, bool]]:
         # Lean and flip uncontrolled rods based on their attacking/defending role.
-        # Genes: passive_x_off_atk, passive_x_off_def, lift_atk, lift_def
+        # Genes: passive_x_off_atk, passive_x_off_def, lift_atk
         if not passive_rods:
             return {}
         
@@ -193,7 +172,8 @@ class ParameterizedStrategy(Strategy):
             if is_attacking:
                 # center at 0 to include forward and backward lean
                 x_offset = (self.passive_x_off_atk - 0.5) * 2 * config.ROD_X_REACH
-                up = self.lift_atk > (ball.x / field.depth) * attack_dir + 0.5
+                ball_progress = ball.x / field.depth if team == 0 else 1.0 - ball.x / field.depth
+                up = ball_progress < self.lift_atk
             else:
                 x_offset = (self.passive_x_off_def - 0.5) * 2 * config.ROD_X_REACH
                 up = False
