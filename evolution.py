@@ -224,7 +224,10 @@ class ParameterizedStrategy(Strategy):
                     aim_x, aim_y = self._find_gap_target(rod, ball, field)
         else:
             # pass
-            pass_weights = np.array([self.pass_fwd, self.pass_back, self.pass_side])
+            # Suppress pass_back near opponent goal: retreating from scoring position has no value
+            forward_frac = rod.x / field.depth if team == 0 else 1.0 - rod.x / field.depth
+            adjusted_back = self.pass_back * (1.0 - forward_frac)
+            pass_weights = np.array([self.pass_fwd, adjusted_back, self.pass_side])
             pass_weights /= pass_weights.sum()
             pass_choice = np.random.choice(3, p=pass_weights)
 
