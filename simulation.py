@@ -331,8 +331,8 @@ def simulate_point(
                 # Only one hit per tick (first overlap wins)
                 break
 
-            elif rod.controlled:
-                # Strategy declined to hit — rod is held rigid, bounce ball off it.
+            elif rod.controlled and ts.reacting:
+                # Reaction-locked — strategy never got to decide; bounce ball off rigid rod.
                 # No pushback: the operator's grip absorbs the force.
                 r   = config.BALL_RADIUS
                 py  = rod.player_positions[player_idx]
