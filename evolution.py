@@ -227,16 +227,34 @@ class ParameterizedStrategy(Strategy):
             # Suppress pass_back near opponent goal: retreating from scoring position has no value
             forward_frac = rod.x / field.depth if team == 0 else 1.0 - rod.x / field.depth
             adjusted_back = self.pass_back * (1.0 - forward_frac)
-            pass_weights = np.array([self.pass_fwd, adjusted_back, self.pass_side])
-            pass_weights /= pass_weights.sum()
-            pass_choice = np.random.choice(3, p=pass_weights)
 
-            if pass_choice == 0:
-                aim_x, aim_y = self._aim_forward(rod, ball, field)
-            elif pass_choice == 1:
-                aim_x, aim_y = self._aim_back(rod, ball, field)
+            # Availability: only weight options that have a valid target
+            if team == 0:
+                has_fwd  = any(r.team == team and r.x > rod.x for r in field.rods)
+                has_back = any(r.team == team and r.x < rod.x for r in field.rods)
             else:
-                aim_x, aim_y = self._aim_side(rod, player_idx, ball, field)
+                has_fwd  = any(r.team == team and r.x < rod.x for r in field.rods)
+                has_back = any(r.team == team and r.x > rod.x for r in field.rods)
+            has_side = len(rod.player_positions) > 1
+
+            pass_weights = np.array([
+                self.pass_fwd  * has_fwd,
+                adjusted_back  * has_back,
+                self.pass_side * has_side,
+            ])
+            total = pass_weights.sum()
+            if total == 0:
+                goal = field.goal_for_attacker(team)
+                aim_x, aim_y = goal.x, (goal.y_min + goal.y_max) / 2
+            else:
+                pass_weights /= total
+                pass_choice = np.random.choice(3, p=pass_weights)
+                if pass_choice == 0:
+                    aim_x, aim_y = self._aim_forward(rod, ball, field)
+                elif pass_choice == 1:
+                    aim_x, aim_y = self._aim_back(rod, ball, field)
+                else:
+                    aim_x, aim_y = self._aim_side(rod, player_idx, ball, field)
 
         return self._apply_hit(rod, aim_x, aim_y, player_y, intended_speed)
 
