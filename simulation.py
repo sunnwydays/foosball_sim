@@ -301,8 +301,9 @@ def simulate_point(
             if last_hit == (rod_idx, player_idx):
                 continue
 
-            # Ask strategy whether to hit
-            hit_vel = strategies[team].choose_hit(rod, player_idx, ball, field)
+            # Ask strategy whether to hit (suppressed while reaction-locked)
+            ts = team_states[team]
+            hit_vel = None if ts.reacting else strategies[team].choose_hit(rod, player_idx, ball, field)
 
             if hit_vel is not None:
                 hvx, hvy = hit_vel
