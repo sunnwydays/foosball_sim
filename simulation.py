@@ -330,6 +330,28 @@ def simulate_point(
                 # Only one hit per tick (first overlap wins)
                 break
 
+            elif rod.controlled:
+                # Strategy declined to hit — rod is held rigid, bounce ball off it.
+                # No pushback: the operator's grip absorbs the force.
+                r   = config.BALL_RADIUS
+                py  = rod.player_positions[player_idx]
+                ht  = rod.thickness / 2 + r
+                hw  = rod.width / 2 + r
+                dx  = ball.x - rod.x
+                dy  = ball.y - py
+                pen_x = ht - abs(dx)
+                pen_y = hw - abs(dy)
+                if pen_x >= pen_y:
+                    ball.y  = py + (hw if dy > 0 else -hw)
+                    ball.vy = -ball.vy
+                else:
+                    ball.x  = rod.x + (ht if dx > 0 else -ht)
+                    ball.vx = -ball.vx
+                opp_team = 1 - team
+                team_states[opp_team].reaction_timer = config.REACTION_TIME
+                last_hit = (rod_idx, player_idx)
+                break
+
         # Reset last_hit if ball stopped
         if ball.stopped:
             last_hit = None
