@@ -100,9 +100,9 @@ class Rod:
             (i + 1) * spacing for i in range(n_players)
         ]
 
-        # Valid y offset range: outermost players must stay within [0, field_width]
-        self._slide_min = -self._base_positions[0]  + width / 2
-        self._slide_max =  field_width - self._base_positions[-1] - width / 2
+        # Valid y offset range: outermost player edge stays PLAYER_WIDTH away from wall
+        self._slide_min = -self._base_positions[0]  + width * 3 / 2
+        self._slide_max =  field_width - self._base_positions[-1] - width * 3 / 2
 
     # ------------------------------------------------------------------
     # Properties

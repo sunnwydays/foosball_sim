@@ -109,7 +109,7 @@ def _draw_rods_from_offsets(
 
         # Controlled indicator
         if rod_ctrl[i]:
-            ax.plot(rod.x, field.width + 1, 'v', color=color, markersize=5, zorder=5)
+            ax.plot(rod._base_x, field.width + 1, 'v', color=color, markersize=5, zorder=5)
 
         # Restore
         rod.y_offset, rod.x_offset = orig_y, orig_x

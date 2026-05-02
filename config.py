@@ -31,7 +31,7 @@ GOAL_Y_MAX = (FIELD_WIDTH + GOAL_WIDTH) / 2   # 44.0 cm
 # Each entry: (team_id, n_players)  |  (-1, -1) = blank slot (no rod)
 # Using the 3-goalie variant: goalie rods have 3 players instead of 1.
 # ---------------------------------------------------------------------------
-ROD_X_POSITIONS = [9.0, 24.0, 38.0, 54.0, 66.0, 82.0, 96.0, 111.0]
+ROD_X_POSITIONS = [9.0, 23.6, 38.1, 52.7, 67.3, 81.9, 96.4, 111.0]
 
 ROD_CONFIGS = [
     (0, 3),   # index 0 — Team 0 Goalie    (3-player variant)
@@ -50,12 +50,12 @@ KICKOFF_ROD = {0: 3, 1: 4}
 # ---------------------------------------------------------------------------
 # Player physical parameters
 # ---------------------------------------------------------------------------
-PLAYER_WIDTH     = 3.0   # cm — full width of a player figure (y direction)
-PLAYER_THICKNESS = 1.8   # cm — full thickness of a player figure (x direction)
+PLAYER_WIDTH     = 2.5   # cm — width of a player figure (y direction)
+PLAYER_THICKNESS = 1.5   # cm — thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
-ROD_X_REACH = 2.5      # cm — max x-offset from rod origin
+ROD_X_REACH = 3.0      # cm — max x-offset from rod origin
 
 # ---------------------------------------------------------------------------
 # Time-stepped simulation
@@ -89,8 +89,8 @@ MAX_ANGLE_STD = math.radians(25)
 MIN_SPEED_STD =  3.0   # cm/s
 MAX_SPEED_STD = 40.0   # cm/s
 
-MIN_MOVEMENT_STD = 0.3   # cm — at movement_control=1 (precise positioning)
-MAX_MOVEMENT_STD = 2.0   # cm — at movement_control=0 (sloppy positioning)
+MIN_MOVEMENT_STD = 0.1*PLAYER_WIDTH   # cm — at movement_control=1 (precise positioning)
+MAX_MOVEMENT_STD = 1.1*PLAYER_WIDTH   # cm — at movement_control=0 (sloppy positioning)
 
 # ---------------------------------------------------------------------------
 # Passive player contact — ball hitting an uncontrolled rod's player
