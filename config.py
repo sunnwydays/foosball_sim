@@ -117,6 +117,30 @@ REACTION_TIME  = 0.30     # seconds — delay before opponent can change directi
 SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 
 # ---------------------------------------------------------------------------
+# Swing commitment — proactive hit timing (see swing-window plan)
+#
+# A controlled rod commits a swing in advance. The swing has a fixed physical
+# shape: a backswing, then a short active window during which contact connects.
+# Scaled to whole ticks (DT) so the window spans observable ticks at 10 FPS.
+#
+#   commit at t_c →
+#     active_start = t_c + SWING_DURATION * BACKSWING_RATIO
+#     window_end   = t_c + SWING_DURATION
+#   Ball must reach the player within [active_start, window_end] to be struck;
+#   otherwise the held rod rigid-bounces (a "whiff").
+# ---------------------------------------------------------------------------
+SWING_DURATION  = 0.3    # seconds — total swing (backswing + active window) = 3 ticks
+BACKSWING_RATIO = 0.6    # fraction of the swing spent in backswing (active = last 0.12s)
+
+# Anticipation skill — accuracy of the time-to-contact (TTC) estimate.
+#   anticipation=1 → near-perfect TTC even at long horizon (commit early, far away)
+#   anticipation=0 → TTC noise grows fast with horizon (reliable only up close)
+#   sigma(ttc) = ANTICIPATION_TTC_NOISE * ttc * (1 - anticipation)
+DEFAULT_ANTICIPATION    = 0.75   # high baseline so players connect reliably
+ANTICIPATION_TTC_NOISE  = 0.5    # base TTC noise per second of prediction horizon
+ANTICIPATION_MAX_HORIZON = 1.0   # seconds — don't attempt to commit beyond this TTC
+
+# ---------------------------------------------------------------------------
 # Gameplay limits
 # ---------------------------------------------------------------------------
 N_HANDS = 2   # max rods a team can control simultaneously (1 to n_team_rods)

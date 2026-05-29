@@ -16,9 +16,11 @@ A Strategy is called every tick and makes four decisions:
       → dict of {rod_idx: (target_x, up)} for uncontrolled rods.
       Sets rotation and up/down for rods the team isn't holding.
 
-  choose_hit(rod, player_idx, ball, field)
-      → None (don't hit) or (hit_vx, hit_vy) velocity to ADD to the ball.
-      Called only when a player's bounding box overlaps the ball.
+  choose_hit(rod, ball, field, t)
+      → None (don't commit) or a SwingCommitment to arm on the rod.
+      Called every tick for each free controlled rod (proactive commitment).
+      The swing connects only if the ball reaches a player during its active
+      window; a mistimed swing whiffs and the held rod rigid-bounces.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from typing import Optional
 import numpy as np
 
 import config
-from field import BallState, Field, Rod
+from field import BallState, Field, Rod, SwingCommitment
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +116,35 @@ def _project_ball_to_x(ball: BallState, target_x: float) -> Optional[float]:
     return ball.y + ball.vy * t
 
 
+def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
+    """
+    Predict when and where the ball reaches this rod's contact plane.
+
+    The contact plane is the near x-face of the rod's players:
+        rod.x ± (rod.thickness / 2 + config.BALL_RADIUS)
+    (use the face the ball is approaching from).
+
+    Returns
+    -------
+    (ttc, predicted_y) — time-to-contact in seconds and the ball's y at contact.
+    None               — ball is moving away, will stop before reaching the rod,
+                         or otherwise won't make contact.
+
+    Notes for implementation (slice 4 — yours)
+    -------------------------------------------
+    * This is the *true* (skill-free) geometric estimate. Anticipation noise is
+      added later in Strategy._commit_swing, not here.
+    * Account for friction: the ball decelerates at config.FRICTION (cm/s²) along
+      its travel direction, so a far/slow ball may never arrive — return None.
+    * predicted_y can reuse the linear idea in _project_ball_to_x; optionally
+      reflect off the side walls (0 .. field.width) for a y bounce, but a simple
+      linear y estimate is a fine first cut.
+    * Keep it cheap — this runs per controlled rod per tick.
+    """
+    # TODO(slice 4): implement the friction-aware TTC + predicted-y projection.
+    raise NotImplementedError("_predict_contact: implement TTC projection (slice 4)")
+
+
 class Strategy(ABC):
 
     @abstractmethod
@@ -149,24 +180,28 @@ class Strategy(ABC):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         """
-        Decide whether to hit the ball when a player overlaps it.
+        Decide whether to commit a swing on this controlled rod right now.
+
+        Called every tick for each free controlled rod (no pending swing, team
+        not reaction-locked). To connect, the swing's active window must bracket
+        the ball's actual arrival — so the decision hinges on predicting contact.
 
         Parameters
         ----------
-        rod         : the rod with the overlapping player.
-        player_idx  : which player on the rod overlaps.
-        ball        : current ball state (position + velocity).
-        field       : full field (read-only).
+        rod   : the controlled rod considering a swing.
+        ball  : current ball state (position + velocity).
+        field : full field (read-only).
+        t     : current sim time (seconds) — the commit time.
 
         Returns
         -------
-        None                — don't hit (let ball pass / tilt feet up).
-        (hit_vx, hit_vy)    — velocity to ADD to the ball.
+        None             — don't commit this tick.
+        SwingCommitment  — arm this swing (typically built via _commit_swing).
         """
 
     def choose_passive(
@@ -211,6 +246,49 @@ class Strategy(ABC):
             actual_speed * math.cos(actual_angle),
             actual_speed * math.sin(actual_angle),
         )
+
+    def _commit_swing(
+        self,
+        rod: Rod,
+        ball: BallState,
+        field: Field,
+        t: float,
+        aim_x: float,
+        aim_y: float,
+        intended_speed: float,
+    ) -> Optional[SwingCommitment]:
+        """
+        Decide whether *now* is the moment to commit a swing aimed at (aim_x,
+        aim_y), and if so build the SwingCommitment. Shared by every strategy —
+        each strategy only supplies its aim point + intended speed.
+
+        Algorithm (slice 5 — yours)
+        ----------------------------
+        1. pred = _predict_contact(ball, rod); if None → return None.
+           Unpack (ttc_true, predicted_y).
+        2. Bail if ttc_true > config.ANTICIPATION_MAX_HORIZON (too far to judge).
+        3. Apply anticipation noise to the *estimate*:
+               sigma   = config.ANTICIPATION_TTC_NOISE * ttc_true * (1 - rod.anticipation)
+               ttc_est = ttc_true + Normal(0, sigma)
+           (Lower anticipation → larger sigma → noisier estimate at long range.)
+        4. Commit only if ttc_est lands in the lead band — i.e. the swing armed
+           now would have its active window bracket the predicted arrival:
+               backswing = config.SWING_DURATION * config.BACKSWING_RATIO
+               if not (backswing <= ttc_est <= config.SWING_DURATION): return None
+        5. Pick the contact player: the rod player whose y is nearest predicted_y;
+           use that player's y as the _apply_hit origin (not a fixed player_idx).
+        6. vel = self._apply_hit(rod, aim_x, aim_y, player_y, intended_speed);
+           if None → return None.
+        7. Return SwingCommitment(vx, vy,
+               active_start = t + backswing,
+               window_end   = t + config.SWING_DURATION).
+
+        Note: timing uses the *true* ttc only via the band check on ttc_est;
+        the actual hit/whiff is decided later by physics in simulate_point when
+        the ball does (or doesn't) arrive inside [active_start, window_end].
+        """
+        # TODO(slice 5): implement anticipation-noise + lead-band commit logic.
+        raise NotImplementedError("_commit_swing: implement commit logic (slice 5)")
 
     def _aim_forward(
         self, rod: Rod, ball: BallState, field: Field

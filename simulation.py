@@ -231,8 +231,17 @@ def simulate_point(
                     rod.set_x_offset(tx)
                     rod.up = up
 
-            # If reacting: rods keep moving toward their previous target_y
-            # (no new commands issued — this is the reaction time lockout)
+                # Proactive swing commitment: each free controlled rod may arm a
+                # swing now. An armed swing is locked in until it resolves on
+                # contact (hit or whiff) — we never overwrite one mid-flight.
+                for rod_idx, rod in controlled:
+                    if rod.pending_swing is None:
+                        commit = strat.choose_hit(rod, ball, field, game_time)
+                        if commit is not None:
+                            rod.pending_swing = commit
+
+            # If reacting: rods keep moving toward their previous target_y and
+            # cannot arm new swings (a swing armed earlier still resolves).
 
             # Passive rod positioning (always available, even during reaction)
             all_rod_idxs = {idx for idx, _ in team_rods}
@@ -288,7 +297,12 @@ def simulate_point(
             )
 
         # --------------------------------------------------------------
-        # 5. Detect overlaps + strategy decides whether to hit
+        # 5. Detect overlaps + resolve any committed swing
+        #
+        # A controlled rod connects only if it has a pending swing whose active
+        # window brackets this contact. Otherwise (whiff, or no swing armed) the
+        # held rod rigid-bounces the ball. Uncontrolled-rod contact was already
+        # handled passively inside step_ball.
         # --------------------------------------------------------------
         overlaps = find_overlapping_players(ball, field)
 
@@ -301,16 +315,12 @@ def simulate_point(
             if last_hit == (rod_idx, player_idx):
                 continue
 
-            # Ask strategy whether to hit (suppressed while reaction-locked)
-            ts = team_states[team]
-            hit_vel = None if ts.reacting else strategies[team].choose_hit(rod, player_idx, ball, field)
+            s = rod.pending_swing
 
-            if hit_vel is not None:
-                hvx, hvy = hit_vel
-
-                # Add velocity to ball
-                ball.vx += hvx
-                ball.vy += hvy
+            if s is not None and s.active_start <= game_time <= s.window_end:
+                # Swing connects — add the committed velocity to the ball.
+                ball.vx += s.vx
+                ball.vy += s.vy
 
                 # Clamp to max speed
                 speed = ball.speed
@@ -318,6 +328,8 @@ def simulate_point(
                     factor = config.BALL_MAX_SPEED / speed
                     ball.vx *= factor
                     ball.vy *= factor
+
+                rod.pending_swing = None
 
                 # Set opponent's reaction timer
                 opp_team = 1 - team
@@ -331,9 +343,10 @@ def simulate_point(
                 # Only one hit per tick (first overlap wins)
                 break
 
-            elif rod.controlled and ts.reacting:
-                # Reaction-locked — strategy never got to decide; bounce ball off rigid rod.
-                # No pushback: the operator's grip absorbs the force.
+            elif rod.controlled:
+                # Whiff (mistimed swing) or no swing armed on a held rod:
+                # bounce the ball off the rigid, gripped players (no pushback).
+                rod.pending_swing = None
                 r   = config.BALL_RADIUS
                 py  = rod.player_positions[player_idx]
                 ht  = rod.thickness / 2 + r
@@ -348,6 +361,9 @@ def simulate_point(
                 else:
                     ball.x  = rod.x + (ht if dx > 0 else -ht)
                     ball.vx = -ball.vx
+                # NOTE: per approved plan, a whiff bounce also locks the opponent's
+                # reaction timer. Revisit if this proves to give the whiffer an
+                # unintended tempo advantage.
                 opp_team = 1 - team
                 team_states[opp_team].reaction_timer = config.REACTION_TIME
                 last_hit = (rod_idx, player_idx)

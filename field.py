@@ -58,6 +58,7 @@ class Rod:
         accuracy: float = 0.5,
         power_consistency: float = 0.5,
         movement_control: float = 0.5,
+        anticipation: float = config.DEFAULT_ANTICIPATION,
         movement_speed:  float = config.MOVEMENT_SPEED,
         width: float = config.PLAYER_WIDTH,
         thickness: float = config.PLAYER_THICKNESS,
@@ -70,6 +71,7 @@ class Rod:
         self.accuracy          = accuracy
         self.power_consistency = power_consistency
         self.movement_control  = movement_control
+        self.anticipation      = anticipation
         self.movement_speed    = movement_speed
         self.width      = width
         self.thickness   = thickness
@@ -88,6 +90,10 @@ class Rod:
         # --- Control state ---
         self.controlled    = False  # is a hand currently on this rod?
         self.switch_timer  = 0.0    # seconds until rod responds after hand switch
+
+        # --- Swing commitment ---
+        # A swing armed in advance; resolved (hit or whiff) on ball contact.
+        self.pending_swing: Optional[SwingCommitment] = None
 
         # --- Bounds ---
         # x slide: rod can move ±rod_x_reach from origin (models rotation)
@@ -216,6 +222,7 @@ class Rod:
         self.controlled         = False
         self.switch_timer       = 0.0
         self.up                 = False
+        self.pending_swing      = None
 
     def __repr__(self) -> str:
         ctrl = "H" if self.controlled else "-"
@@ -272,6 +279,27 @@ class BallState:
     @property
     def stopped(self) -> bool:
         return self.speed < config.STOP_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
+# Swing commitment
+# ---------------------------------------------------------------------------
+
+@dataclass
+class SwingCommitment:
+    """
+    A swing armed in advance on a controlled rod.
+
+    vx, vy       — velocity to ADD to the ball if contact lands in the window.
+    active_start — sim time when the hit window opens (after the backswing).
+    window_end   — sim time when the hit window closes.
+
+    Contact before active_start or after window_end is a whiff (rigid bounce).
+    """
+    vx: float
+    vy: float
+    active_start: float
+    window_end: float
 
 
 # ---------------------------------------------------------------------------
