@@ -133,7 +133,7 @@ def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]
     # i love kinematics, use quadratic formula
     a = 0.5 * -math.copysign(config.FRICTION, ball.vx)  # same sign as vx
     b = ball.vx
-    c = ball.x - rod._base_x
+    c = ball.x - rod.x
 
     discriminant = b*b - 4*a*c
     if discriminant < 0:
@@ -154,7 +154,7 @@ def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]
     if ttc > t_stop: # probably ball rolling away
         return None
 
-    return (ttc, _project_ball_to_x(ball, rod._base_x))
+    return (ttc, _project_ball_to_x(ball, rod.x))
 
 class Strategy(ABC):
 
