@@ -118,7 +118,7 @@ def _project_ball_to_x(ball: BallState, target_x: float) -> Optional[float]:
 
 def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
     """
-    Predict when and where the ball reaches this rod's contact plane.
+    Predict (skill-free) when and where the ball reaches this rod's x.
 
     The contact plane is the near x-face of the rod's players:
         rod.x ± (rod.thickness / 2 + config.BALL_RADIUS)
@@ -129,21 +129,32 @@ def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]
     (ttc, predicted_y) — time-to-contact in seconds and the ball's y at contact.
     None               — ball is moving away, will stop before reaching the rod,
                          or otherwise won't make contact.
-
-    Notes for implementation (slice 4 — yours)
-    -------------------------------------------
-    * This is the *true* (skill-free) geometric estimate. Anticipation noise is
-      added later in Strategy._commit_swing, not here.
-    * Account for friction: the ball decelerates at config.FRICTION (cm/s²) along
-      its travel direction, so a far/slow ball may never arrive — return None.
-    * predicted_y can reuse the linear idea in _project_ball_to_x; optionally
-      reflect off the side walls (0 .. field.width) for a y bounce, but a simple
-      linear y estimate is a fine first cut.
-    * Keep it cheap — this runs per controlled rod per tick.
     """
-    # TODO(slice 4): implement the friction-aware TTC + predicted-y projection.
-    raise NotImplementedError("_predict_contact: implement TTC projection (slice 4)")
+    # i love kinematics, use quadratic formula
+    a = 0.5 * -math.copysign(config.FRICTION, ball.vx)  # same sign as vx
+    b = ball.vx
+    c = ball.x - rod._base_x
 
+    discriminant = b*b - 4*a*c
+    if discriminant < 0:
+        return None
+    
+    sqrt_term = math.sqrt(discriminant)
+    t1 = (-b + sqrt_term) / (2 * a)
+    t2 = (-b - sqrt_term) / (2 * a)
+
+    if t1 >= 0 and t2 >= 0:
+        ttc = min(t1, t2)
+    elif t1 >= 0:
+        ttc = t1
+    else:
+        ttc = t2
+
+    t_stop = abs(ball.vx) / config.FRICTION
+    if ttc > t_stop: # probably ball rolling away
+        return None
+
+    return (ttc, _project_ball_to_x(ball, rod._base_x))
 
 class Strategy(ABC):
 
