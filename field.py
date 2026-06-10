@@ -290,7 +290,7 @@ class SwingCommitment:
     """
     A swing armed in advance on a controlled rod.
 
-    vx, vy       — velocity to ADD to the ball if contact lands in the window.
+    vx, vy       — velocity to SET on the ball if contact lands in the window.
     active_start — sim time when the hit window opens (after the backswing).
     window_end   — sim time when the hit window closes.
 

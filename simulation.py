@@ -203,11 +203,13 @@ def simulate_point(
             released   = prev_hands - desired_hands
             acquired   = desired_hands - prev_hands
 
-            # Released rods stop immediately
+            # Released rods stop immediately; discard any armed swing to prevent
+            # a ghost hit firing after the player has let go.
             for rod_idx in released:
                 rod = field.rods[rod_idx]
                 rod.controlled = False
                 rod.vy = 0.0
+                rod.pending_swing = None
 
             # Acquired rods get switch delay
             for rod_idx in acquired:
@@ -235,7 +237,7 @@ def simulate_point(
                 # swing now. An armed swing is locked in until it resolves on
                 # contact (hit or whiff) — we never overwrite one mid-flight.
                 for rod_idx, rod in controlled:
-                    if rod.pending_swing is None:
+                    if rod.pending_swing is None and rod.switch_timer <= 0:
                         commit = strat.choose_hit(rod, ball, field, game_time)
                         if commit is not None:
                             rod.pending_swing = commit
@@ -318,9 +320,9 @@ def simulate_point(
             s = rod.pending_swing
 
             if s is not None and s.active_start <= game_time <= s.window_end:
-                # Swing connects — add the committed velocity to the ball.
-                ball.vx += s.vx
-                ball.vy += s.vy
+                # Swing connects — replace ball velocity with the committed swing vector.
+                ball.vx = s.vx
+                ball.vy = s.vy
 
                 # Clamp to max speed
                 speed = ball.speed

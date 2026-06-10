@@ -9,9 +9,9 @@ import random
 from itertools import combinations
 
 import config
-from field import BallState, Field, Rod
+from field import BallState, Field, Rod, SwingCommitment
 from monte_carlo import run_monte_carlo
-from strategy import (Strategy, _best_wall_shot, _best_player_deflection, _project_ball_to_x,
+from strategy import (Strategy, _best_wall_shot, _best_player_deflection,
                       SmackBall, AimAtGap, HardOffense, DefensiveWall, TiltAndGap, ReactiveBlock)
 
 # config, move this to config.py later perhaps
@@ -42,7 +42,7 @@ GENE_GROUPS = {
     "indep": ["offensive_bias", "shot_rate", "shot_speed",
               "lift_attackers",
               "passive_x_offset_attack", "passive_x_offset_defense",
-              "defensive_activity"],
+              "defensive_activity", "anticipation"],
 }
 
 _OFFSETS = {}
@@ -50,7 +50,7 @@ idx = 0
 for name, genes in GENE_GROUPS.items():
     _OFFSETS[name] = (idx, idx + len(genes))
     idx += len(genes)
-GENOME_SIZE = idx  # 16
+GENOME_SIZE = idx  # 17
 
 @dataclass
 class EvolutionHistory:
@@ -89,7 +89,7 @@ class ParameterizedStrategy(Strategy):
         (self.offensive_bias, self.shot_rate, self.shot_speed,
          self.lift_atk,
          self.passive_x_off_atk, self.passive_x_off_def,
-         self.defensive_activity)                                   = _group(genome, "indep")
+         self.defensive_activity, self.anticipation)               = _group(genome, "indep")
 
     def choose_hands(
         self,
@@ -130,9 +130,7 @@ class ParameterizedStrategy(Strategy):
             rod.movement_control = self.movement_control
             is_attacking = (rod._base_x - field.depth / 2) * attack_dir > 0
 
-            # track projected intercept or current ball.y
-            predicted_y = _project_ball_to_x(ball, rod._base_x)
-            track_y = predicted_y if predicted_y is not None else ball.y
+            track_y = self._predicted_y(rod, ball, field)
 
             # - defending rods always track the ball
             # - attacking rods lerp between tracking (defensive_activity=1) and 
@@ -185,18 +183,18 @@ class ParameterizedStrategy(Strategy):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         # Sample shot vs pass decision, then aim and apply skill noise.
         # Genes: shot_rate, shot_speed, accuracy, power_consistency, aim_gap/wall/player, pass_fwd/back/side
 
         rod.accuracy          = self.accuracy
         rod.power_consistency = self.power_consistency
+        rod.anticipation      = self.anticipation
 
         team = rod.team
-        player_y = rod.player_positions[player_idx]
         goal = field.goal_for_attacker(team)
         intended_speed = config.HIT_SPEED * (0.5 + 0.5 * self.shot_speed)
 
@@ -254,9 +252,9 @@ class ParameterizedStrategy(Strategy):
                 elif pass_choice == 1:
                     aim_x, aim_y = self._aim_back(rod, ball, field)
                 else:
-                    aim_x, aim_y = self._aim_side(rod, player_idx, ball, field)
+                    aim_x, aim_y = self._aim_side(rod, ball, field)
 
-        return self._apply_hit(rod, aim_x, aim_y, player_y, intended_speed)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, intended_speed)
 
 
 def save_agent(agent: "Agent", path: str, metadata: dict | None = None) -> None:
