@@ -41,6 +41,21 @@ class ContactParams:
 DEFAULT_CONTACT = ContactParams()
 
 
+def _reflect_toward(v: float, offset: float) -> float:
+    """Reflect velocity component `v` only if it points toward an obstacle.
+
+    `offset` is (ball - obstacle_centre) on the same axis. The ball is moving
+    toward the obstacle when `v` and `offset` have opposite signs; then the
+    component is negated (a bounce). If the ball is already separating (same
+    sign, or offset == 0) `v` is returned unchanged, so a correct outgoing
+    velocity is never reversed back into the obstacle. Wall bounces stay robust
+    by forcing direction with abs(); player bounces need this guard because a
+    ball can overlap a player while already moving away (corner clips, or a wall
+    reflection nudging it into a neighbouring player's box).
+    """
+    return -v if v * offset < 0.0 else v
+
+
 def step_ball(
     ball: BallState,
     field: Field,
@@ -162,7 +177,7 @@ def _step_ball_inner(
             # --- Side face (y): simple bounce ---
             if pen_x >= pen_y:
                 ball.y = py + (hw if dy > 0 else -hw)
-                ball.vy = -ball.vy
+                ball.vy = _reflect_toward(ball.vy, dy)
                 continue
 
             # --- Front face (x): passive contact model ---

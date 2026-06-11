@@ -29,7 +29,7 @@ import numpy as np
 
 import config
 from field import Field, BallState, TeamState, ActionLogEntry
-from physics import step_ball, find_overlapping_players
+from physics import step_ball, find_overlapping_players, _reflect_toward
 from strategy import Strategy
 
 
@@ -400,10 +400,10 @@ def simulate_point(
                 pen_y = hw - abs(dy)
                 if pen_x >= pen_y:
                     ball.y  = py + (hw if dy > 0 else -hw)
-                    ball.vy = -ball.vy
+                    ball.vy = _reflect_toward(ball.vy, dy)
                 else:
                     ball.x  = rod.x + (ht if dx > 0 else -ht)
-                    ball.vx = -ball.vx
+                    ball.vx = _reflect_toward(ball.vx, dx)
                 if collect_action_log:
                     _action_log.append(ActionLogEntry(
                         game_time    = game_time,
@@ -436,7 +436,7 @@ def simulate_point(
                 pen_y = hw - abs(dy)
                 if pen_x >= pen_y:
                     ball.y  = py + (hw if dy > 0 else -hw)
-                    ball.vy = -ball.vy
+                    ball.vy = _reflect_toward(ball.vy, dy)
                 else:
                     ball.x  = rod.x + (ht if dx > 0 else -ht)
                     ball.vx *= config.CONTACT_SLOWDOWN
