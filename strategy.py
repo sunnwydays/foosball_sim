@@ -16,9 +16,11 @@ A Strategy is called every tick and makes four decisions:
       → dict of {rod_idx: (target_x, up)} for uncontrolled rods.
       Sets rotation and up/down for rods the team isn't holding.
 
-  choose_hit(rod, player_idx, ball, field)
-      → None (don't hit) or (hit_vx, hit_vy) velocity to ADD to the ball.
-      Called only when a player's bounding box overlaps the ball.
+  choose_hit(rod, ball, field, t)
+      → None (don't commit) or a SwingCommitment to arm on the rod.
+      Called every tick for each free controlled rod (proactive commitment).
+      The swing connects only if the ball reaches a player during its active
+      window; a mistimed swing whiffs and the held rod rigid-bounces.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ from typing import Optional
 import numpy as np
 
 import config
-from field import BallState, Field, Rod
+from field import BallState, Field, Rod, SwingCommitment
 
 
 # ---------------------------------------------------------------------------
@@ -101,18 +103,74 @@ def _best_player_deflection(
     return best if best is not None else (aim_x, aim_y)
 
 
-def _project_ball_to_x(ball: BallState, target_x: float) -> Optional[float]:
-    """
-    Linear projection: return predicted ball.y when it reaches target_x.
-    Returns None if ball is stationary or moving away from target_x.
-    """
-    if ball.vx == 0:
-        return None
-    t = (target_x - ball.x) / ball.vx
-    if t < 0:
-        return None
-    return ball.y + ball.vy * t
+def _fold_into_field(y: float, width: float) -> float:
+    """Triangle-wave fold: reflect y into [0, width] as the ball bounces off side walls."""
+    if width <= 0:
+        return y
+    period = 2.0 * width
+    m = y % period
+    return m if m <= width else period - m
 
+
+def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
+    """
+    Predict when and where the ball reaches this rod's contact face.
+
+    Contact face: the near x-face of the player block (including ball radius):
+        face_x = rod.x - copysign(thickness/2 + BALL_RADIUS, ball.vx)
+
+    Friction model: isotropic, matching physics.py.  The engine decelerates
+    total speed at rate FRICTION, so each axis contributes proportionally:
+        a_x = -(vx / speed) * FRICTION / 2   [opposes vx — decelerates]
+        a_y = -(vy / speed) * FRICTION / 2   [opposes vy — decelerates]
+        t_stop = speed / FRICTION
+
+    Returns
+    -------
+    (ttc, predicted_y) — time-to-contact and ball y at contact (unfolded).
+    None               — ball has no x-motion, stops before reaching rod, or
+                         discriminant is negative.
+    """
+    # No x-motion: ball won't reach the rod. Check static overlap.
+    if abs(ball.vx) <= config.STOP_THRESHOLD:
+        if abs(ball.x - rod.x) <= rod.rod_x_reach + rod.thickness / 2 + config.BALL_RADIUS:
+            return (0.0, ball.y)
+        return None
+
+    speed = ball.speed  # > STOP_THRESHOLD (guaranteed since |vx| > STOP_THRESHOLD)
+
+    # Contact face: near side of the player block, offset by ball radius.
+    face_x = rod.x - math.copysign(rod.thickness / 2 + config.BALL_RADIUS, ball.vx)
+
+    # Quadratic: x(t) = ball.x + b*t + a*t^2 = face_x
+    # a is opposite sign to vx (deceleration opposes motion).
+    a = -(ball.vx / speed) * config.FRICTION / 2.0
+    b = ball.vx
+    c = ball.x - face_x
+
+    discriminant = b*b - 4*a*c
+    if discriminant < 0:
+        return None
+
+    sqrt_term = math.sqrt(discriminant)
+    t1 = (-b + sqrt_term) / (2 * a)
+    t2 = (-b - sqrt_term) / (2 * a)
+
+    if t1 >= 0 and t2 >= 0:
+        ttc = min(t1, t2)
+    elif t1 >= 0:
+        ttc = t1
+    else:
+        ttc = t2
+
+    if ttc > speed / config.FRICTION:
+        return None
+
+    # Predicted y using the same isotropic model (unfolded; caller folds if needed).
+    a_y = -(ball.vy / speed) * config.FRICTION / 2.0
+    predicted_y = ball.y + ball.vy * ttc + a_y * ttc * ttc
+
+    return (ttc, predicted_y)
 
 class Strategy(ABC):
 
@@ -149,24 +207,28 @@ class Strategy(ABC):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         """
-        Decide whether to hit the ball when a player overlaps it.
+        Decide whether to commit a swing on this controlled rod right now.
+
+        Called every tick for each free controlled rod (no pending swing, team
+        not reaction-locked). To connect, the swing's active window must bracket
+        the ball's actual arrival — so the decision hinges on predicting contact.
 
         Parameters
         ----------
-        rod         : the rod with the overlapping player.
-        player_idx  : which player on the rod overlaps.
-        ball        : current ball state (position + velocity).
-        field       : full field (read-only).
+        rod   : the controlled rod considering a swing.
+        ball  : current ball state (position + velocity).
+        field : full field (read-only).
+        t     : current sim time (seconds) — the commit time.
 
         Returns
         -------
-        None                — don't hit (let ball pass / tilt feet up).
-        (hit_vx, hit_vy)    — velocity to ADD to the ball.
+        None             — don't commit this tick.
+        SwingCommitment  — arm this swing (typically built via _commit_swing).
         """
 
     def choose_passive(
@@ -212,6 +274,72 @@ class Strategy(ABC):
             actual_speed * math.sin(actual_angle),
         )
 
+    def _commit_swing(
+        self,
+        rod: Rod,
+        ball: BallState,
+        field: Field,
+        t: float,
+        aim_x: float,
+        aim_y: float,
+        intended_speed: float,
+    ) -> Optional[SwingCommitment]:
+        """
+        Decide whether *now* is the moment to commit a swing aimed at (aim_x,
+        aim_y), and if so build the SwingCommitment. Shared by every strategy —
+        each strategy only supplies its aim point + intended speed.
+        """
+        contact = _predict_contact(ball, rod)
+        if contact is None:
+            return None
+        ttc_true, predicted_y = contact
+        predicted_y = _fold_into_field(predicted_y, field.width)
+
+        # Ball is already at the rod so arm an immediate hit (no lead band needed)
+        if ttc_true <= 0.0:
+            vel = self._apply_hit(rod, aim_x, aim_y, predicted_y, intended_speed)
+            if vel is None:
+                return None
+            vx, vy = vel
+            return SwingCommitment(vx=vx, vy=vy, active_start=t, window_end=t + config.DT)
+
+        # Bail if ball too far to predict reliably
+        if ttc_true > config.ANTICIPATION_MAX_HORIZON:
+            return None
+
+        # Apply anticipation noise
+        sigma = config.ANTICIPATION_TTC_NOISE * ttc_true * (1 - rod.anticipation)
+        ttc_est = ttc_true + (float(np.random.normal(0, sigma)) if sigma > 0 else 0.0)
+
+        # Commit only if estimated arrival falls in the swing lead band
+        backswing = config.SWING_DURATION * config.BACKSWING_RATIO
+        if not (backswing <= ttc_est <= config.SWING_DURATION):
+            return None
+
+        # Player whose y is nearest the predicted contact point
+        nearest_player_y = min(rod.player_positions, key=lambda py: abs(py - predicted_y))
+
+        vel = self._apply_hit(rod, aim_x, aim_y, nearest_player_y, intended_speed)
+        if vel is None:
+            return None
+
+        vx, vy = vel
+        return SwingCommitment(
+            vx=vx,
+            vy=vy,
+            active_start=t + backswing,
+            window_end=t + config.SWING_DURATION,
+        )
+
+    def _predicted_y(self, rod: Rod, ball: BallState, field: Field) -> float:
+        """Absolute y where ball is predicted to reach this rod's x, folded for
+        side-wall bounces. Falls back to ball.y when no clean intercept."""
+        contact = _predict_contact(ball, rod)
+        if contact is None:
+            return ball.y
+        _, predicted_y = contact
+        return _fold_into_field(predicted_y, field.width)
+
     def _aim_forward(
         self, rod: Rod, ball: BallState, field: Field
     ) -> tuple[float, float]:
@@ -249,17 +377,16 @@ class Strategy(ABC):
         return self._aim_forward(rod, ball, field)
 
     def _aim_side(
-        self, rod: Rod, player_idx: int, ball: BallState, field: Field
+        self, rod: Rod, ball: BallState, field: Field
     ) -> tuple[float, float]:
         """Return (aim_x, aim_y) targeting the nearest other player on the same rod."""
         positions = rod.player_positions
         if len(positions) <= 1:
-            # No other player — fall back to forward aim
             return self._aim_forward(rod, ball, field)
-        player_y = positions[player_idx]
+        nearest_y = min(positions, key=lambda py: abs(py - ball.y))
         other = min(
-            (py for i, py in enumerate(positions) if i != player_idx),
-            key=lambda py: abs(py - player_y),
+            (py for py in positions if py != nearest_y),
+            key=lambda py: abs(py - nearest_y),
         )
         return rod.x, other
 
@@ -334,22 +461,21 @@ class SmackBall(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.width / 2
+            target_y = self._predicted_y(rod, ball, field) - field.width / 2
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         goal = field.goal_for_attacker(rod.team)
         aim_x = goal.x
         aim_y = (goal.y_min + goal.y_max) / 2
-        player_y = rod.player_positions[player_idx]
-        return self._apply_hit(rod, aim_x, aim_y, player_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
 
 # ---------------------------------------------------------------------------
 # AimAtGap — scans for defensive gaps before hitting
@@ -379,20 +505,19 @@ class AimAtGap(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.width / 2
+            target_y = self._predicted_y(rod, ball, field) - field.width / 2
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         aim_x, aim_y = self._find_gap_target(rod, ball, field)
-        player_y = rod.player_positions[player_idx]
-        return self._apply_hit(rod, aim_x, aim_y, player_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
 
 # ---------------------------------------------------------------------------
 # HardOffense — trying to hit into the goal, remove obstacles
@@ -422,7 +547,7 @@ class HardOffense(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.width / 2
+            target_y = self._predicted_y(rod, ball, field) - field.width / 2
 
             # Flip rod up if ball is moving away from opponent's goal past this rod
             up = False
@@ -452,17 +577,16 @@ class HardOffense(Strategy):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         goal = field.goal_for_attacker(rod.team)
         aim_x = goal.x
         goal_cy = (goal.y_min + goal.y_max) / 2
         goal_half = (goal.y_max - goal.y_min) / 2
         aim_y = float(np.clip(np.random.normal(goal_cy, goal_half / 2), goal.y_min, goal.y_max))
-        player_y = rod.player_positions[player_idx]
-        return self._apply_hit(rod, aim_x, aim_y, player_y, config.HIT_SPEED * 1.5)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED * 1.5)
 
     @staticmethod
     def _is_offensive(rod: Rod, field: Field) -> bool:
@@ -505,7 +629,7 @@ class DefensiveWall(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.width / 2
+            target_y = self._predicted_y(rod, ball, field) - field.width / 2
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
@@ -530,15 +654,14 @@ class DefensiveWall(Strategy):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         goal = field.goal_for_attacker(rod.team)
         aim_x = goal.x
         aim_y = (goal.y_min + goal.y_max) / 2
-        player_y = rod.player_positions[player_idx]
-        return self._apply_hit(rod, aim_x, aim_y, player_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
 
     @staticmethod
     def _is_offensive(rod: Rod, field: Field) -> bool:
@@ -577,7 +700,7 @@ class TiltAndGap(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.width / 2
+            target_y = self._predicted_y(rod, ball, field) - field.width / 2
 
             # Flip up controlled rod if ball is retreating past it
             up = False
@@ -609,13 +732,12 @@ class TiltAndGap(Strategy):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         aim_x, aim_y = self._find_gap_target(rod, ball, field)
-        player_y = rod.player_positions[player_idx]
-        return self._apply_hit(rod, aim_x, aim_y, player_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
 
     @staticmethod
     def _find_gap_target(
@@ -691,7 +813,7 @@ class ReactiveBlock(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = ball.y - field.width / 2
+            target_y = self._predicted_y(rod, ball, field) - field.width / 2
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
@@ -721,10 +843,9 @@ class ReactiveBlock(Strategy):
     def choose_hit(
         self,
         rod: Rod,
-        player_idx: int,
         ball: BallState,
         field: Field,
-    ) -> Optional[tuple[float, float]]:
+        t: float,
+    ) -> Optional[SwingCommitment]:
         aim_x, aim_y = TiltAndGap._find_gap_target(rod, ball, field)
-        player_y = rod.player_positions[player_idx]
-        return self._apply_hit(rod, aim_x, aim_y, player_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)

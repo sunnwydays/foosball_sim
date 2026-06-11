@@ -28,7 +28,7 @@ from typing import Optional
 import numpy as np
 
 import config
-from field import Field, BallState, TeamState
+from field import Field, BallState, TeamState, ActionLogEntry
 from physics import step_ball, find_overlapping_players
 from strategy import Strategy
 
@@ -58,15 +58,17 @@ class PointResult:
     """
     The outcome of a single simulated point.
 
-    winner : 0 or 1 (team that scored), or None (time limit / dead ball).
-    ticks  : number of ticks elapsed.
-    time   : game time in seconds.
-    frames : list of Frame snapshots (only if record=True).
+    winner     : 0 or 1 (team that scored), or None (time limit / dead ball).
+    ticks      : number of ticks elapsed.
+    time       : game time in seconds.
+    frames     : list of Frame snapshots (only if record=True).
+    action_log : list of ActionLogEntry (only if collect_action_log=True).
     """
-    winner: Optional[int]
-    ticks:  int
-    time:   float
-    frames: list[Frame] = dc_field(default_factory=list)
+    winner:     Optional[int]
+    ticks:      int
+    time:       float
+    frames:     list[Frame]            = dc_field(default_factory=list)
+    action_log: list[ActionLogEntry]   = dc_field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -90,14 +92,15 @@ def _teams_with_reach(ball: BallState, field: Field) -> set[int]:
 # ---------------------------------------------------------------------------
 
 def simulate_point(
-    field:       Field,
-    strategies:  dict[int, Strategy],
-    kickoff_team: int = 0,
-    n_hands:     int = config.N_HANDS,
-    record:      bool = False,
-    seed:        Optional[int] = None,
-    pos_grid:    Optional[np.ndarray] = None,
-    goal_hits:   Optional[list] = None,
+    field:              Field,
+    strategies:         dict[int, Strategy],
+    kickoff_team:       int = 0,
+    n_hands:            int = config.N_HANDS,
+    record:             bool = False,
+    seed:               Optional[int] = None,
+    pos_grid:           Optional[np.ndarray] = None,
+    goal_hits:          Optional[list] = None,
+    collect_action_log: bool = False,
 ) -> PointResult:
     """
     Simulate one foosball point with time-stepped physics.
@@ -119,6 +122,20 @@ def simulate_point(
         np.random.seed(seed)
 
     dt = config.DT
+
+    # --- Action log setup ---
+    _action_log: list[ActionLogEntry] = []
+    # Rod labels: sort each team's rods from own goal outward → goa/def/mid/fwd
+    _rod_labels: dict[int, str] = {}
+    _role_names = ["goa", "def", "mid", "fwd"]
+    for _team in (0, 1):
+        _team_rods = sorted(
+            [(i, r) for i, r in enumerate(field.rods) if r.team == _team],
+            key=lambda ir: ir[1]._base_x if _team == 0 else -ir[1]._base_x,
+        )
+        for _rank, (_rod_idx, _) in enumerate(_team_rods):
+            _role = _role_names[_rank] if _rank < len(_role_names) else str(_rank)
+            _rod_labels[_rod_idx] = f"T{_team}-{_role}"
 
     # --- Initialize state ---
     field.reset()
@@ -203,11 +220,13 @@ def simulate_point(
             released   = prev_hands - desired_hands
             acquired   = desired_hands - prev_hands
 
-            # Released rods stop immediately
+            # Released rods stop immediately; discard any armed swing to prevent
+            # a ghost hit firing after the player has let go.
             for rod_idx in released:
                 rod = field.rods[rod_idx]
                 rod.controlled = False
                 rod.vy = 0.0
+                rod.pending_swing = None
 
             # Acquired rods get switch delay
             for rod_idx in acquired:
@@ -231,8 +250,27 @@ def simulate_point(
                     rod.set_x_offset(tx)
                     rod.up = up
 
-            # If reacting: rods keep moving toward their previous target_y
-            # (no new commands issued — this is the reaction time lockout)
+                # Proactive swing commitment: each free controlled rod may arm a
+                # swing now. An armed swing is locked in until it resolves on
+                # contact (hit or whiff) — we never overwrite one mid-flight.
+                for rod_idx, rod in controlled:
+                    if rod.pending_swing is None:
+                        commit = strat.choose_hit(rod, ball, field, game_time)
+                        if commit is not None:
+                            rod.pending_swing = commit
+                            if collect_action_log:
+                                _action_log.append(ActionLogEntry(
+                                    game_time    = game_time,
+                                    team         = team,
+                                    rod_label    = _rod_labels[rod_idx],
+                                    action       = 'COMMIT',
+                                    ball_pos     = (ball.x, ball.y),
+                                    intended_vel = (commit.vx, commit.vy),
+                                    actual_vel   = None,
+                                ))
+
+            # If reacting: rods keep moving toward their previous target_y and
+            # cannot arm new swings (a swing armed earlier still resolves).
 
             # Passive rod positioning (always available, even during reaction)
             all_rod_idxs = {idx for idx, _ in team_rods}
@@ -261,14 +299,14 @@ def simulate_point(
         teams_in_reach = _teams_with_reach(ball, field)
 
         if ball.stopped and not teams_in_reach:
-            return PointResult(winner=None, ticks=tick + 1, time=game_time + dt, frames=frames)
+            return PointResult(winner=None, ticks=tick + 1, time=game_time + dt, frames=frames, action_log=_action_log)
 
         if len(teams_in_reach) == 1:
             possessing = next(iter(teams_in_reach))
             possession_timer[possessing] += dt
             possession_timer[1 - possessing] = 0.0
             if possession_timer[possessing] >= config.POSSESSION_LIMIT:
-                return PointResult(winner=1 - possessing, ticks=tick + 1, time=game_time + dt, frames=frames)
+                return PointResult(winner=1 - possessing, ticks=tick + 1, time=game_time + dt, frames=frames, action_log=_action_log)
         else:
             possession_timer[0] = possession_timer[1] = 0.0
 
@@ -281,14 +319,20 @@ def simulate_point(
             if record:
                 frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}'))
             return PointResult(
-                winner = winner,
-                ticks  = tick + 1,
-                time   = game_time + dt,
-                frames = frames,
+                winner     = winner,
+                ticks      = tick + 1,
+                time       = game_time + dt,
+                frames     = frames,
+                action_log = _action_log,
             )
 
         # --------------------------------------------------------------
-        # 5. Detect overlaps + strategy decides whether to hit
+        # 5. Detect overlaps + resolve any committed swing
+        #
+        # A controlled rod connects only if it has a pending swing whose active
+        # window brackets this contact. Otherwise (whiff, or no swing armed) the
+        # held rod rigid-bounces the ball. Uncontrolled-rod contact was already
+        # handled passively inside step_ball.
         # --------------------------------------------------------------
         overlaps = find_overlapping_players(ball, field)
 
@@ -301,16 +345,12 @@ def simulate_point(
             if last_hit == (rod_idx, player_idx):
                 continue
 
-            # Ask strategy whether to hit (suppressed while reaction-locked)
-            ts = team_states[team]
-            hit_vel = None if ts.reacting else strategies[team].choose_hit(rod, player_idx, ball, field)
+            s = rod.pending_swing
 
-            if hit_vel is not None:
-                hvx, hvy = hit_vel
-
-                # Add velocity to ball
-                ball.vx += hvx
-                ball.vy += hvy
+            if s is not None and s.active_start <= game_time <= s.window_end:
+                # Swing connects — replace ball velocity with the committed swing vector.
+                ball.vx = s.vx
+                ball.vy = s.vy
 
                 # Clamp to max speed
                 speed = ball.speed
@@ -318,6 +358,19 @@ def simulate_point(
                     factor = config.BALL_MAX_SPEED / speed
                     ball.vx *= factor
                     ball.vy *= factor
+
+                if collect_action_log:
+                    _action_log.append(ActionLogEntry(
+                        game_time    = game_time,
+                        team         = team,
+                        rod_label    = _rod_labels[rod_idx],
+                        action       = 'HIT',
+                        ball_pos     = (ball.x, ball.y),
+                        intended_vel = (s.vx, s.vy),
+                        actual_vel   = (ball.vx, ball.vy),
+                    ))
+
+                rod.pending_swing = None
 
                 # Set opponent's reaction timer
                 opp_team = 1 - team
@@ -331,9 +384,12 @@ def simulate_point(
                 # Only one hit per tick (first overlap wins)
                 break
 
-            elif rod.controlled and ts.reacting:
-                # Reaction-locked — strategy never got to decide; bounce ball off rigid rod.
-                # No pushback: the operator's grip absorbs the force.
+            elif rod.controlled and rod.switch_timer <= 0:
+                # Whiff (mistimed swing) or no swing armed on a settled rod:
+                # bounce the ball off rigid players (no pushback)
+                _had_swing = s is not None
+                _intended  = (s.vx, s.vy) if _had_swing else None
+                rod.pending_swing = None
                 r   = config.BALL_RADIUS
                 py  = rod.player_positions[player_idx]
                 ht  = rod.thickness / 2 + r
@@ -348,8 +404,42 @@ def simulate_point(
                 else:
                     ball.x  = rod.x + (ht if dx > 0 else -ht)
                     ball.vx = -ball.vx
+                if collect_action_log:
+                    _action_log.append(ActionLogEntry(
+                        game_time    = game_time,
+                        team         = team,
+                        rod_label    = _rod_labels[rod_idx],
+                        action       = 'WHIFF' if _had_swing else 'PASSIVE',
+                        ball_pos     = (ball.x, ball.y),
+                        intended_vel = _intended,
+                        actual_vel   = None,
+                    ))
+                # NOTE: per approved plan, a whiff bounce also locks the opponent's
+                # reaction timer. Revisit if this proves to give the whiffer an
+                # unintended tempo advantage.
                 opp_team = 1 - team
                 team_states[opp_team].reaction_timer = config.REACTION_TIME
+                last_hit = (rod_idx, player_idx)
+                break
+
+            elif rod.controlled and rod.switch_timer > 0:
+                # Ball arrived before switch delay expired -> absorbed bounce to
+                # prevent hard bounce into own goal
+                rod.pending_swing = None
+                r   = config.BALL_RADIUS
+                py  = rod.player_positions[player_idx]
+                ht  = rod.thickness / 2 + r
+                hw  = rod.width / 2 + r
+                dx  = ball.x - rod.x
+                dy  = ball.y - py
+                pen_x = ht - abs(dx)
+                pen_y = hw - abs(dy)
+                if pen_x >= pen_y:
+                    ball.y  = py + (hw if dy > 0 else -hw)
+                    ball.vy = -ball.vy
+                else:
+                    ball.x  = rod.x + (ht if dx > 0 else -ht)
+                    ball.vx *= config.CONTACT_SLOWDOWN
                 last_hit = (rod_idx, player_idx)
                 break
 
@@ -365,10 +455,11 @@ def simulate_point(
 
     # --- Time limit reached ---
     return PointResult(
-        winner = None,
-        ticks  = config.MAX_TICKS,
-        time   = config.MAX_GAME_TIME,
-        frames = frames,
+        winner     = None,
+        ticks      = config.MAX_TICKS,
+        time       = config.MAX_GAME_TIME,
+        frames     = frames,
+        action_log = _action_log,
     )
 
 
