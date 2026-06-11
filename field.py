@@ -94,6 +94,7 @@ class Rod:
         # --- Swing commitment ---
         # A swing armed in advance; resolved (hit or whiff) on ball contact.
         self.pending_swing: Optional[SwingCommitment] = None
+        self.last_commit_time: float = -999.0  # far past → first commit always allowed
 
         # --- Bounds ---
         # x slide: rod can move ±rod_x_reach from origin (models rotation)
@@ -223,6 +224,7 @@ class Rod:
         self.switch_timer       = 0.0
         self.up                 = False
         self.pending_swing      = None
+        self.last_commit_time   = -999.0
 
     def __repr__(self) -> str:
         ctrl = "H" if self.controlled else "-"
@@ -312,7 +314,7 @@ class ActionLogEntry:
     game_time:    float
     team:         int
     rod_label:    str                            # e.g. "T0-mid", "T1-goa"
-    action:       str                            # 'COMMIT' | 'HIT' | 'WHIFF' | 'PASSIVE'
+    action:       str                            # 'COMMIT' | 'HIT' | 'WHIFF' | 'PASSIVE' | 'RETRACT'
     ball_pos:     tuple[float, float]
     intended_vel: Optional[tuple[float, float]]  # from SwingCommitment (vx, vy)
     actual_vel:   Optional[tuple[float, float]]  # post-clamp vel applied (HIT only)

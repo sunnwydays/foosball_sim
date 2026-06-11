@@ -131,12 +131,13 @@ SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 # ---------------------------------------------------------------------------
 SWING_DURATION  = 0.4    # seconds — total swing (backswing + active window)
 BACKSWING_RATIO = 0.5    # fraction of the swing spent in backswing
+COMMIT_COOLDOWN = SWING_DURATION  # seconds — min time between successive swing commits
 
 # Anticipation skill — accuracy of the time-to-contact (TTC) estimate.
 #   anticipation=1 → near-perfect TTC even at long horizon (commit early, far away)
 #   anticipation=0 → TTC noise grows fast with horizon (reliable only up close)
 #   sigma(ttc) = ANTICIPATION_TTC_NOISE * ttc * (1 - anticipation)
-DEFAULT_ANTICIPATION    = 0.75   # high baseline so players connect reliably
+DEFAULT_ANTICIPATION    = 0.50
 ANTICIPATION_TTC_NOISE  = 0.5    # base TTC noise per second of prediction horizon
 ANTICIPATION_MAX_HORIZON = 1.0   # seconds — don't attempt to commit beyond this TTC
 

@@ -251,13 +251,24 @@ def simulate_point(
                     rod.up = up
 
                 # Proactive swing commitment: each free controlled rod may arm a
-                # swing now. An armed swing is locked in until it resolves on
-                # contact (hit or whiff) — we never overwrite one mid-flight.
+                # swing now. After COMMIT_COOLDOWN has elapsed since the last
+                # commit, a stale pending intent can be replaced with a fresh one.
                 for rod_idx, rod in controlled:
-                    if rod.pending_swing is None:
+                    if game_time - rod.last_commit_time >= config.COMMIT_COOLDOWN:
                         commit = strat.choose_hit(rod, ball, field, game_time)
                         if commit is not None:
+                            if collect_action_log and rod.pending_swing is not None:
+                                _action_log.append(ActionLogEntry(
+                                    game_time    = game_time,
+                                    team         = team,
+                                    rod_label    = _rod_labels[rod_idx],
+                                    action       = 'RETRACT',
+                                    ball_pos     = (ball.x, ball.y),
+                                    intended_vel = (rod.pending_swing.vx, rod.pending_swing.vy),
+                                    actual_vel   = None,
+                                ))
                             rod.pending_swing = commit
+                            rod.last_commit_time = game_time
                             if collect_action_log:
                                 _action_log.append(ActionLogEntry(
                                     game_time    = game_time,
