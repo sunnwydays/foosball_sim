@@ -137,7 +137,7 @@ COMMIT_COOLDOWN = SWING_DURATION  # seconds — min time between successive swin
 #   anticipation=1 → near-perfect TTC even at long horizon (commit early, far away)
 #   anticipation=0 → TTC noise grows fast with horizon (reliable only up close)
 #   sigma(ttc) = ANTICIPATION_TTC_NOISE * ttc * (1 - anticipation)
-DEFAULT_ANTICIPATION    = 0.50
+DEFAULT_ANTICIPATION    = 0.7
 ANTICIPATION_TTC_NOISE  = 0.5    # base TTC noise per second of prediction horizon
 ANTICIPATION_MAX_HORIZON = 1.0   # seconds — don't attempt to commit beyond this TTC
 
