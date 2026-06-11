@@ -1,12 +1,14 @@
 """
 play.py — Run a single point and view/save the replay.
 
-Usage:  python play.py
+Usage:  python play.py [seed]
 Tweak the settings below to change what you see.
+Pass a seed as an argument to override SEED for this run.
 """
 
 import json
 import os
+import sys
 from datetime import datetime
 import matplotlib
 import matplotlib.pyplot as plt
@@ -116,6 +118,10 @@ def _save_action_log(log, label0: str, label1: str) -> None:
 
 
 def main():
+    seed = SEED
+    if len(sys.argv) > 1:
+        seed = None if sys.argv[1].lower() in ("none", "random") else int(sys.argv[1])
+
     field = Field()
 
     # Apply skill overrides
@@ -149,7 +155,7 @@ def main():
         field, strats,
         kickoff_team=KICKOFF,
         record=True,
-        seed=SEED,
+        seed=seed,
         pos_grid=pos_grid,
         goal_hits=goal_hits,
         collect_action_log=SAVE_ACTION_LOG,
