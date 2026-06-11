@@ -112,65 +112,113 @@ def _fold_into_field(y: float, width: float) -> float:
     return m if m <= width else period - m
 
 
-def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
+def _time_to_reach_x(x0: float, vx: float, speed: float, target_x: float) -> Optional[float]:
     """
-    Predict when and where the ball reaches this rod's contact face.
+    Smallest non-negative time at which a ball at x0 with x-velocity vx (total
+    speed `speed`) reaches target_x under isotropic friction, or None if it
+    stops first / never reaches it.
 
-    Contact face: the near x-face of the player block (including ball radius):
-        face_x = rod.x - copysign(thickness/2 + BALL_RADIUS, ball.vx)
-
-    Friction model: isotropic, matching physics.py.  The engine decelerates
-    total speed at rate FRICTION, so each axis contributes proportionally:
-        a_x = -(vx / speed) * FRICTION / 2   [opposes vx — decelerates]
-        a_y = -(vy / speed) * FRICTION / 2   [opposes vy — decelerates]
-        t_stop = speed / FRICTION
-
-    Returns
-    -------
-    (ttc, predicted_y) — time-to-contact and ball y at contact (unfolded).
-    None               — ball has no x-motion, stops before reaching rod, or
-                         discriminant is negative.
+    x(t) = x0 + vx*t + a*t^2,  a = -(vx / speed) * FRICTION / 2  (opposes vx).
+    Valid only until the ball stops, at t_stop = speed / FRICTION.
     """
-    # No x-motion: ball won't reach the rod. Check static overlap.
-    if abs(ball.vx) <= config.STOP_THRESHOLD:
-        if abs(ball.x - rod.x) <= rod.rod_x_reach + rod.thickness / 2 + config.BALL_RADIUS:
-            return (0.0, ball.y)
-        return None
-
-    speed = ball.speed  # > STOP_THRESHOLD (guaranteed since |vx| > STOP_THRESHOLD)
-
-    # Contact face: near side of the player block, offset by ball radius.
-    face_x = rod.x - math.copysign(rod.thickness / 2 + config.BALL_RADIUS, ball.vx)
-
-    # Quadratic: x(t) = ball.x + b*t + a*t^2 = face_x
-    # a is opposite sign to vx (deceleration opposes motion).
-    a = -(ball.vx / speed) * config.FRICTION / 2.0
-    b = ball.vx
-    c = ball.x - face_x
+    a = -(vx / speed) * config.FRICTION / 2.0
+    b = vx
+    c = x0 - target_x
 
     discriminant = b*b - 4*a*c
     if discriminant < 0:
         return None
 
     sqrt_term = math.sqrt(discriminant)
-    t1 = (-b + sqrt_term) / (2 * a)
-    t2 = (-b - sqrt_term) / (2 * a)
+    t_stop = speed / config.FRICTION
+    candidates = [
+        t for t in ((-b + sqrt_term) / (2 * a), (-b - sqrt_term) / (2 * a))
+        if 0.0 <= t <= t_stop
+    ]
+    return min(candidates) if candidates else None
 
-    if t1 >= 0 and t2 >= 0:
-        ttc = min(t1, t2)
-    elif t1 >= 0:
-        ttc = t1
-    else:
-        ttc = t2
 
-    if ttc > speed / config.FRICTION:
+# Max end-wall bounces to follow when predicting contact (ball decelerates, so
+# this terminates anyway; the cap is a safety bound).
+_MAX_PREDICT_BOUNCES = 4
+
+
+def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
+    """
+    Predict when and where the ball reaches this rod's contact face, following
+    end-wall (x) bounces so a rod can anticipate the ball's return off the back
+    wall. Side-wall (y) bounces are not folded here — callers apply
+    `_fold_into_field` to the returned y.
+
+    Contact face: the near x-face of the player block (including ball radius),
+    recomputed from the ball's current x-direction after each bounce:
+        face_x = rod.x - copysign(thickness/2 + BALL_RADIUS, vx)
+
+    End walls are at x=BALL_RADIUS and x=FIELD_DEPTH-BALL_RADIUS; the goal
+    opening is treated as a solid wall (always reflect in x). Friction is
+    isotropic (matches physics.py): total speed decelerates at FRICTION, so x
+    and y deceleration are proportional and y integration is unaffected by
+    x-reflections — predicted_y uses the full ttc with the original vy.
+
+    Returns
+    -------
+    (ttc, predicted_y) — time-to-contact and ball y at contact (unfolded).
+    None               — ball has no x-motion, or stops before reaching the rod.
+    """
+    # No x-motion: ball won't travel toward the rod. Check static overlap.
+    if abs(ball.vx) <= config.STOP_THRESHOLD:
+        if abs(ball.x - rod.x) <= rod.rod_x_reach + rod.thickness / 2 + config.BALL_RADIUS:
+            return (0.0, ball.y)
         return None
 
-    # Predicted y using the same isotropic model (unfolded; caller folds if needed).
-    a_y = -(ball.vy / speed) * config.FRICTION / 2.0
-    predicted_y = ball.y + ball.vy * ttc + a_y * ttc * ttc
+    reach = rod.thickness / 2 + config.BALL_RADIUS
 
-    return (ttc, predicted_y)
+    # Already within the contact band while moving: immediate contact.
+    if abs(ball.x - rod.x) <= reach:
+        return (0.0, ball.y)
+
+    left_wall  = config.BALL_RADIUS
+    right_wall = config.FIELD_DEPTH - config.BALL_RADIUS
+
+    # Walk x-segments, reflecting off end walls, until the ball reaches the rod
+    # face or stops. y integration uses the original ball state over total ttc.
+    x        = ball.x
+    vx       = ball.vx
+    speed    = ball.speed
+    elapsed  = 0.0
+
+    for _ in range(_MAX_PREDICT_BOUNCES + 1):
+        if abs(vx) <= config.STOP_THRESHOLD:
+            return None
+
+        face_x = rod.x - math.copysign(reach, vx)
+        t_face = _time_to_reach_x(x, vx, speed, face_x)
+
+        wall   = right_wall if vx > 0 else left_wall
+        t_wall = _time_to_reach_x(x, vx, speed, wall)
+
+        # Reach the rod this segment (before any bounce) → that's the contact.
+        if t_face is not None and (t_wall is None or t_face <= t_wall):
+            ttc = elapsed + t_face
+            a_y = -(ball.vy / ball.speed) * config.FRICTION / 2.0
+            predicted_y = ball.y + ball.vy * ttc + a_y * ttc * ttc
+            return (ttc, predicted_y)
+
+        # Otherwise advance to the wall and reflect, if the ball gets there.
+        if t_wall is None:
+            return None  # ball stops before the wall and never reaches the rod
+
+        new_speed = speed - config.FRICTION * t_wall
+        if new_speed <= config.STOP_THRESHOLD:
+            return None  # effectively stops at the wall
+
+        # vx scales with the decayed speed, then flips at the wall.
+        vx      = -vx * (new_speed / speed)
+        speed   = new_speed
+        x       = wall
+        elapsed += t_wall
+
+    return None
 
 class Strategy(ABC):
 
