@@ -129,8 +129,8 @@ SWITCH_DELAY   = 0.50     # seconds — delay when switching a hand to a new rod
 #   Ball must reach the player within [active_start, window_end] to be struck;
 #   otherwise the held rod rigid-bounces (a "whiff").
 # ---------------------------------------------------------------------------
-SWING_DURATION  = 0.3    # seconds — total swing (backswing + active window) = 3 ticks
-BACKSWING_RATIO = 0.6    # fraction of the swing spent in backswing (active = last 0.12s)
+SWING_DURATION  = 0.4    # seconds — total swing (backswing + active window)
+BACKSWING_RATIO = 0.5    # fraction of the swing spent in backswing
 
 # Anticipation skill — accuracy of the time-to-contact (TTC) estimate.
 #   anticipation=1 → near-perfect TTC even at long horizon (commit early, far away)
