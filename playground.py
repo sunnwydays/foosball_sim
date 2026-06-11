@@ -224,15 +224,15 @@ def main() -> None:
     s_goals = Slider(ax_goals, "goals",        0, 2, valinit=0, color=slider_color, valstep=1)
 
     # Contact param sliders
-    s_cslowdown = Slider(ax_cslowdown, "slowdown",     0.0, 1.0,   valinit=config.CONTACT_SLOWDOWN,    color=slider_color, valstep=0.05)
-    s_cminspd   = Slider(ax_cminspd,    "min spd",      0.0, 200.0,  valinit=config.CONTACT_MIN_SPEED,   color=slider_color, valstep=0.5)
+    s_cslowdown = Slider(ax_cslowdown, "slowdown",     0.0, 1.0,   valinit=config.PASSIVE_SLOWDOWN,    color=slider_color, valstep=0.05)
+    s_cminspd   = Slider(ax_cminspd,    "min spd",      0.0, 200.0,  valinit=config.PASSIVE_MIN_SPEED,   color=slider_color, valstep=0.5)
     s_cspdpb    = Slider(ax_cspdpb,     "spd pb",       0.0, 0.05,  valinit=config.SPEED_PUSHBACK,      color=slider_color, valstep=0.001)
     s_cofspb    = Slider(ax_cofspb,     "ofs pb",       0.0, 0.25,   valinit=config.OFFSET_PUSHBACK,     color=slider_color, valstep=0.01)
     s_cpbstart  = Slider(ax_cpbstart,   "pb start",     0.0, config.ROD_X_REACH,   valinit=config.PUSHBACK_X_START,    color=slider_color, valstep=0.1)
     s_cpassspd  = Slider(ax_cpassspd,   "pass spd",    50.0, config.BALL_MAX_SPEED, valinit=config.PASSTHROUGH_SPEED,   color=slider_color, valstep=5)
     s_crodup    = Slider(ax_crodup,     "up thresh",   -config.ROD_X_REACH, 0.0,   valinit=config.ROD_UP_THRESHOLD,    color=slider_color, valstep=0.1)
     s_cglance   = Slider(ax_cglance,   "glance",      -config.ROD_X_REACH, 0.0,   valinit=config.GLANCE_THRESHOLD,    color=slider_color, valstep=0.1)
-    s_cdeflect  = Slider(ax_cdeflect, "deflect",      0.0, 1.0,   valinit=config.CONTACT_DEFLECTION,  color=slider_color, valstep=0.05)
+    s_cdeflect  = Slider(ax_cdeflect, "deflect",      0.0, 1.0,   valinit=config.PASSIVE_DEFLECTION,  color=slider_color, valstep=0.05)
 
     # Style slider labels
     all_sliders = (s_vx, s_vy, s_fric, s_rodx, s_rody, s_rodxo, s_goals,
