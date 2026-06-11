@@ -254,7 +254,7 @@ def simulate_point(
                 # swing now. An armed swing is locked in until it resolves on
                 # contact (hit or whiff) — we never overwrite one mid-flight.
                 for rod_idx, rod in controlled:
-                    if rod.pending_swing is None and rod.switch_timer <= 0:
+                    if rod.pending_swing is None:
                         commit = strat.choose_hit(rod, ball, field, game_time)
                         if commit is not None:
                             rod.pending_swing = commit
