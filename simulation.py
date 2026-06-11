@@ -450,7 +450,7 @@ def simulate_point(
                     ball.vy = -ball.vy
                 else:
                     ball.x  = rod.x + (ht if dx > 0 else -ht)
-                    ball.vx *= config.CONTACT_SLOWDOWN
+                    ball.vx *= config.PASSIVE_SLOWDOWN
                 last_hit = (rod_idx, player_idx)
                 break
 

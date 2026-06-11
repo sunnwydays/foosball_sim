@@ -26,15 +26,15 @@ from field import BallState, Field
 @dataclass
 class ContactParams:
     """Tunable parameters for passive player contact."""
-    slowdown:          float = config.CONTACT_SLOWDOWN
-    min_speed:         float = config.CONTACT_MIN_SPEED
+    slowdown:          float = config.PASSIVE_SLOWDOWN
+    min_speed:         float = config.PASSIVE_MIN_SPEED
     speed_pushback:    float = config.SPEED_PUSHBACK
     offset_pushback:   float = config.OFFSET_PUSHBACK
     pushback_x_start:  float = config.PUSHBACK_X_START
     passthrough_speed: float = config.PASSTHROUGH_SPEED
     rod_up_threshold:  float = config.ROD_UP_THRESHOLD
     glance_threshold:  float = config.GLANCE_THRESHOLD
-    deflection:        float = config.CONTACT_DEFLECTION
+    deflection:        float = config.PASSIVE_DEFLECTION
 
 
 # Default instance reused when no overrides are needed

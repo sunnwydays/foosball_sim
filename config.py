@@ -95,16 +95,16 @@ MAX_MOVEMENT_STD = 1.1*PLAYER_WIDTH   # cm — at movement_control=0 (sloppy pos
 # ---------------------------------------------------------------------------
 # Passive player contact — ball hitting an uncontrolled rod's player
 # ---------------------------------------------------------------------------
-CONTACT_SLOWDOWN    = 0.8    # vx multiplier on contact (0 = full stop, 1 = no effect)
+PASSIVE_SLOWDOWN    = 0.8    # vx multiplier on contact (0 = full stop, 1 = no effect)
 CONTROLLED_SLOWDOWN = 0.6    # speed multiplier on idle controlled-rod bounce / whiff
-CONTACT_MIN_SPEED   = 5.0   # cm/s — below this, vx zeroes out on contact
+PASSIVE_MIN_SPEED   = 5.0   # cm/s — below this, vx zeroes out on contact
 SPEED_PUSHBACK      = 0.005  # x_offset pushback per unit of ball speed
 OFFSET_PUSHBACK     = 0.10   # x_offset pushback per unit of offset distance from pushback_x_start
 PUSHBACK_X_START    = 2.4    # cm — rod this far forward will not be pushed back
 PASSTHROUGH_SPEED   = BALL_MAX_SPEED * 0.9  # cm/s — ball faster than this flips the rod up
 ROD_UP_THRESHOLD    = -2.4   # cm — rod pushed back past this x_offset flips up
 GLANCE_THRESHOLD    = -1.5   # cm — rod must be tilted back this far for a glance
-CONTACT_DEFLECTION  = 0.30   # vy deflection factor — fraction of vx added to vy based on hit position
+PASSIVE_DEFLECTION  = 0.30   # vy deflection factor — fraction of vx added to vy based on hit position
 
 # ---------------------------------------------------------------------------
 # Rod movement
