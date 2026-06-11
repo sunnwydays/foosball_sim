@@ -303,6 +303,22 @@ class SwingCommitment:
 
 
 # ---------------------------------------------------------------------------
+# Action log entry
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ActionLogEntry:
+    """One logged agent action: intention or contact outcome."""
+    game_time:    float
+    team:         int
+    rod_label:    str                            # e.g. "T0-mid", "T1-goa"
+    action:       str                            # 'COMMIT' | 'HIT' | 'WHIFF' | 'PASSIVE'
+    ball_pos:     tuple[float, float]
+    intended_vel: Optional[tuple[float, float]]  # from SwingCommitment (vx, vy)
+    actual_vel:   Optional[tuple[float, float]]  # post-clamp vel applied (HIT only)
+
+
+# ---------------------------------------------------------------------------
 # Team state
 # ---------------------------------------------------------------------------
 
