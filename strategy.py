@@ -174,7 +174,6 @@ def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]
 
 class Strategy(ABC):
 
-    @abstractmethod
     def choose_hands(
         self,
         team_rods: list[tuple[int, Rod]],
@@ -185,8 +184,25 @@ class Strategy(ABC):
         """
         Pick which rods (up to n_hands) this team controls this tick.
 
+        Default: grab the rod(s) the ball will next reach, so SWITCH_DELAY
+        expires before contact. Falls back to nearest-x when the ball is slow,
+        stopped, or moving away from every rod.
+
         Returns a set of global rod indices.
         """
+        incoming = []                    # (ttc, idx) for rods in the ball's path
+        for idx, rod in team_rods:
+            contact = _predict_contact(ball, rod)
+            if contact is not None:
+                incoming.append((contact[0], idx))
+        chosen = [idx for _, idx in sorted(incoming)[:n_hands]]
+        if len(chosen) < n_hands:        # fill remaining slots by nearest-x
+            for idx, _ in sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x)):
+                if idx not in chosen:
+                    chosen.append(idx)
+                if len(chosen) >= n_hands:
+                    break
+        return set(chosen)
 
     @abstractmethod
     def choose_pos(
@@ -443,16 +459,6 @@ class SmackBall(Strategy):
     The hit adds velocity toward the goal center with noise from accuracy/power_consistency.
     """
 
-    def choose_hands(
-        self,
-        team_rods: list[tuple[int, Rod]],
-        ball: BallState,
-        field: Field,
-        n_hands: int,
-    ) -> set[int]:
-        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
-        return {idx for idx, _ in sorted_rods[:n_hands]}
-
     def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
@@ -487,16 +493,6 @@ class AimAtGap(Strategy):
     between the ball and the goal.
     """
 
-    def choose_hands(
-        self,
-        team_rods: list[tuple[int, Rod]],
-        ball: BallState,
-        field: Field,
-        n_hands: int,
-    ) -> set[int]:
-        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
-        return {idx for idx, _ in sorted_rods[:n_hands]}
-
     def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
@@ -528,16 +524,6 @@ class HardOffense(Strategy):
     Like SmackBall but aims through the largest gap in the nearest opponent rod
     between the ball and the goal.
     """
-
-    def choose_hands(
-        self,
-        team_rods: list[tuple[int, Rod]],
-        ball: BallState,
-        field: Field,
-        n_hands: int,
-    ) -> set[int]:
-        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
-        return {idx for idx, _ in sorted_rods[:n_hands]}
 
     def choose_pos(
         self,
@@ -611,16 +597,6 @@ class DefensiveWall(Strategy):
     - Hits aim at goal center at full power.
     """
 
-    def choose_hands(
-        self,
-        team_rods: list[tuple[int, Rod]],
-        ball: BallState,
-        field: Field,
-        n_hands: int,
-    ) -> set[int]:
-        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
-        return {idx for idx, _ in sorted_rods[:n_hands]}
-
     def choose_pos(
         self,
         controlled_rods: list[tuple[int, Rod]],
@@ -681,16 +657,6 @@ class TiltAndGap(Strategy):
     - Controlled rods track ball_y.
     - Hits aim through the largest gap in the nearest defender.
     """
-
-    def choose_hands(
-        self,
-        team_rods: list[tuple[int, Rod]],
-        ball: BallState,
-        field: Field,
-        n_hands: int,
-    ) -> set[int]:
-        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
-        return {idx for idx, _ in sorted_rods[:n_hands]}
 
     def choose_pos(
         self,
@@ -794,16 +760,6 @@ class ReactiveBlock(Strategy):
     - Passive rods behind the ball (further from own goal) flip up.
     - Controlled rods track ball_y and hit at gap.
     """
-
-    def choose_hands(
-        self,
-        team_rods: list[tuple[int, Rod]],
-        ball: BallState,
-        field: Field,
-        n_hands: int,
-    ) -> set[int]:
-        sorted_rods = sorted(team_rods, key=lambda ir: abs(ir[1].x - ball.x))
-        return {idx for idx, _ in sorted_rods[:n_hands]}
 
     def choose_pos(
         self,

@@ -411,10 +411,10 @@ def simulate_point(
                 pen_y = hw - abs(dy)
                 if pen_x >= pen_y:
                     ball.y  = py + (hw if dy > 0 else -hw)
-                    ball.vy = -ball.vy
+                    ball.vy = -ball.vy * config.CONTROLLED_SLOWDOWN
                 else:
                     ball.x  = rod.x + (ht if dx > 0 else -ht)
-                    ball.vx = -ball.vx
+                    ball.vx = -ball.vx * config.CONTROLLED_SLOWDOWN
                 if collect_action_log:
                     _action_log.append(ActionLogEntry(
                         game_time    = game_time,
