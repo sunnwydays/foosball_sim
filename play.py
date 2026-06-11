@@ -31,6 +31,11 @@ SAVE_ACTION_LOG = True   # print action table to terminal + save JSON
 TEAM_0_SKILL = (0.7, 0.7)
 TEAM_1_SKILL = (0.6, 0.7)
 
+# Anticipation overrides (0.0–1.0, or None to use config.DEFAULT_ANTICIPATION)
+# Ignored for genome-based agents (anticipation gene is in the genome itself)
+TEAM_0_ANTICIPATION = None
+TEAM_1_ANTICIPATION = None
+
 # ---------------------------------------------------------------------------
 
 if not SHOW_LIVE:
@@ -122,6 +127,14 @@ def main():
         for rod in field.rods:
             if rod.team == 1:
                 rod.accuracy, rod.power_consistency = TEAM_1_SKILL
+    if TEAM_0_ANTICIPATION is not None:
+        for rod in field.rods:
+            if rod.team == 0:
+                rod.anticipation = TEAM_0_ANTICIPATION
+    if TEAM_1_ANTICIPATION is not None:
+        for rod in field.rods:
+            if rod.team == 1:
+                rod.anticipation = TEAM_1_ANTICIPATION
 
     strats = {
         0: build_strategy(TEAM_0),
