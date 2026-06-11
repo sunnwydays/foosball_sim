@@ -345,9 +345,9 @@ def simulate_point(
                 # Only one hit per tick (first overlap wins)
                 break
 
-            elif rod.controlled:
-                # Whiff (mistimed swing) or no swing armed on a held rod:
-                # bounce the ball off the rigid, gripped players (no pushback).
+            elif rod.controlled and rod.switch_timer <= 0:
+                # Whiff (mistimed swing) or no swing armed on a settled rod:
+                # bounce the ball off rigid players (no pushback)
                 rod.pending_swing = None
                 r   = config.BALL_RADIUS
                 py  = rod.player_positions[player_idx]
@@ -368,6 +368,27 @@ def simulate_point(
                 # unintended tempo advantage.
                 opp_team = 1 - team
                 team_states[opp_team].reaction_timer = config.REACTION_TIME
+                last_hit = (rod_idx, player_idx)
+                break
+
+            elif rod.controlled and rod.switch_timer > 0:
+                # Ball arrived before switch delay expired -> absorbed bounce to
+                # prevent hard bounce into own goal
+                rod.pending_swing = None
+                r   = config.BALL_RADIUS
+                py  = rod.player_positions[player_idx]
+                ht  = rod.thickness / 2 + r
+                hw  = rod.width / 2 + r
+                dx  = ball.x - rod.x
+                dy  = ball.y - py
+                pen_x = ht - abs(dx)
+                pen_y = hw - abs(dy)
+                if pen_x >= pen_y:
+                    ball.y  = py + (hw if dy > 0 else -hw)
+                    ball.vy = -ball.vy
+                else:
+                    ball.x  = rod.x + (ht if dx > 0 else -ht)
+                    ball.vx *= config.CONTACT_SLOWDOWN
                 last_hit = (rod_idx, player_idx)
                 break
 
