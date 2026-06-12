@@ -87,6 +87,61 @@ def _teams_with_reach(ball: BallState, field: Field) -> set[int]:
     return teams
 
 
+def _resolve_rigid_contact(
+    ball: BallState,
+    rod,
+    player_idx: int,
+    x_pre: float,
+    y_pre: float,
+    reflect: bool,
+) -> bool:
+    """
+    Resolve contact between the ball and a rigid (controlled) player.
+
+    Overlap detection uses the wide rotation-reach box (so swings can connect)
+    and the bounce still resolves at the player slab like before, but the ball
+    is always ejected through the face on the side it CAME FROM this tick
+    (never the far side) and its velocity is set to point away from that face,
+    so a bounce can never send the ball back into the player. A ball that is
+    outside the slab and already separating from the rod is left untouched.
+
+    reflect=True  : rigid bounce at CONTROLLED_SLOWDOWN (whiff / no swing armed)
+    reflect=False : absorbed bounce at PASSIVE_SLOWDOWN (rod mid-switch)
+
+    Returns True if the ball was modified, False if there was no real contact.
+    """
+    r  = config.BALL_RADIUS
+    py = rod.player_positions[player_idx]
+    ht = rod.thickness / 2 + r
+    hw = rod.width / 2 + r
+    dx = ball.x - rod.x
+    dy = ball.y - py
+    pen_x = ht - abs(dx)
+    pen_y = hw - abs(dy)
+
+    if pen_x >= pen_y:
+        # Side face (y)
+        exit_sign = 1.0 if y_pre - py > 0 else -1.0
+        crossed   = (exit_sign > 0) != (dy > 0)
+        if not crossed and pen_y <= 0 and ball.vy * exit_sign > 0:
+            return False
+        ball.y  = py + exit_sign * hw
+        slow    = config.CONTROLLED_SLOWDOWN if reflect else 1.0
+        ball.vy = exit_sign * abs(ball.vy) * slow
+    else:
+        # Front face (x)
+        exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
+        crossed   = (exit_sign > 0) != (dx > 0)
+        if not crossed and pen_x <= 0 and ball.vx * exit_sign > 0:
+            return False
+        ball.x = rod.x + exit_sign * ht
+        if reflect:
+            ball.vx = exit_sign * abs(ball.vx) * config.CONTROLLED_SLOWDOWN
+        else:
+            ball.vx *= config.PASSIVE_SLOWDOWN
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Core simulation
 # ---------------------------------------------------------------------------
@@ -304,6 +359,7 @@ def simulate_point(
         # 4. Move ball
         # --------------------------------------------------------------
         _vx_pre, _vy_pre = ball.vx, ball.vy
+        _x_pre,  _y_pre  = ball.x,  ball.y
 
         ball_result = step_ball(ball, field, dt,
                                 ball_radius=config.BALL_RADIUS,
@@ -433,23 +489,12 @@ def simulate_point(
             elif rod.controlled and rod.switch_timer <= 0:
                 # Whiff (mistimed swing) or no swing armed on a settled rod:
                 # bounce the ball off rigid players (no pushback)
+                if not _resolve_rigid_contact(ball, rod, player_idx,
+                                              _x_pre, _y_pre, reflect=True):
+                    continue
                 _had_swing = s is not None
                 _intended  = (s.vx, s.vy) if _had_swing else None
                 rod.pending_swing = None
-                r   = config.BALL_RADIUS
-                py  = rod.player_positions[player_idx]
-                ht  = rod.thickness / 2 + r
-                hw  = rod.width / 2 + r
-                dx  = ball.x - rod.x
-                dy  = ball.y - py
-                pen_x = ht - abs(dx)
-                pen_y = hw - abs(dy)
-                if pen_x >= pen_y:
-                    ball.y  = py + (hw if dy > 0 else -hw)
-                    ball.vy = -ball.vy * config.CONTROLLED_SLOWDOWN
-                else:
-                    ball.x  = rod.x + (ht if dx > 0 else -ht)
-                    ball.vx = -ball.vx * config.CONTROLLED_SLOWDOWN
                 if collect_action_log:
                     _action_log.append(ActionLogEntry(
                         game_time    = game_time,
@@ -471,21 +516,10 @@ def simulate_point(
             elif rod.controlled and rod.switch_timer > 0:
                 # Ball arrived before switch delay expired -> absorbed bounce to
                 # prevent hard bounce into own goal
+                if not _resolve_rigid_contact(ball, rod, player_idx,
+                                              _x_pre, _y_pre, reflect=False):
+                    continue
                 rod.pending_swing = None
-                r   = config.BALL_RADIUS
-                py  = rod.player_positions[player_idx]
-                ht  = rod.thickness / 2 + r
-                hw  = rod.width / 2 + r
-                dx  = ball.x - rod.x
-                dy  = ball.y - py
-                pen_x = ht - abs(dx)
-                pen_y = hw - abs(dy)
-                if pen_x >= pen_y:
-                    ball.y  = py + (hw if dy > 0 else -hw)
-                    ball.vy = -ball.vy
-                else:
-                    ball.x  = rod.x + (ht if dx > 0 else -ht)
-                    ball.vx *= config.PASSIVE_SLOWDOWN
                 last_hit = (rod_idx, player_idx)
                 break
 
