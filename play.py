@@ -19,7 +19,7 @@ SEED        = 36         # RNG seed (change for different games, None for random
 KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 SHOW_REACH  = True      # draw player hitbox rectangles
-SAVE_GIF    = True      # save to output/replay.gif
+ANIMATE     = False      # build the replay animation and save output/replay.gif (slow; off = action log only)
 SHOW_LIVE   = False     # open a matplotlib window to watch live
 TRACK_STATS = True      # show heatmap after the point
 
@@ -166,25 +166,26 @@ def main():
     print(f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits")
 
     # Replay
-    save_path = "output/replay.gif" if SAVE_GIF else None
+    save_path = "output/replay.gif" if ANIMATE else None
     label0 = os.path.basename(TEAM_0).replace(".json", "") if TEAM_0.endswith(".json") else TEAM_0
     label1 = os.path.basename(TEAM_1).replace(".json", "") if TEAM_1.endswith(".json") else TEAM_1
 
     if SAVE_ACTION_LOG and result.action_log:
         _print_action_log(result.action_log)
         _save_action_log(result.action_log, label0, label1)
-    anim = replay_point(
-        field, result.frames,
-        show_reach=SHOW_REACH,
-        save_path=save_path,
-        interval=max(1, 1000 // FPS),
-        title=f"{label0} vs {label1}",
-    )
+    if ANIMATE:
+        anim = replay_point(
+            field, result.frames,
+            show_reach=SHOW_REACH,
+            save_path=save_path,
+            interval=max(1, 1000 // FPS),
+            title=f"{label0} vs {label1}",
+        )
 
-    if SHOW_LIVE:
-        plt.show()
-    elif save_path:
-        os.startfile(os.path.abspath(save_path))
+        if SHOW_LIVE:
+            plt.show()
+        elif save_path:
+            os.startfile(os.path.abspath(save_path))
 
     # Heatmap
     if TRACK_STATS and pos_grid is not None:
