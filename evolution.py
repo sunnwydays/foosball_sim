@@ -2,6 +2,7 @@ from dataclasses import dataclass, field as dc_field
 from typing import Optional
 import heapq
 import json
+import math
 import os
 
 import numpy as np
@@ -11,7 +12,7 @@ from itertools import combinations
 import config
 from field import BallState, Field, Rod, SwingCommitment
 from monte_carlo import run_monte_carlo
-from strategy import (Strategy, _best_wall_shot, _best_player_deflection,
+from strategy import (Strategy, _predict_contact, _best_wall_shot, _best_player_deflection,
                       SmackBall, AimAtGap, HardOffense, DefensiveWall, TiltAndGap, ReactiveBlock)
 
 # config, move this to config.py later perhaps
@@ -98,18 +99,27 @@ class ParameterizedStrategy(Strategy):
         field: Field,
         n_hands: int,
     ) -> set[int]:
-        # Hold rods closest to the ball; offensive_bias biases toward offensive rods
+        # Grab rods by predicted contact time (including end-wall bounces) so
+        # SWITCH_DELAY expires before the ball arrives; offensive_bias biases
+        # toward attacking rods when TTC is similar.
         # Genes: offensive_bias
 
         team = team_rods[0][1].team
         attack_dir = 1 if team == 0 else -1
+        speed = math.sqrt(ball.vx ** 2 + ball.vy ** 2)
 
-        def score(rod):
-            dist_score   = -abs(rod.x - ball.x)
+        def score(pair):
+            _, rod = pair
+            contact = _predict_contact(ball, rod)
+            if contact is not None:
+                ttc, _ = contact
+                dist_score = -ttc * (speed if speed > 1e-6 else 1.0)
+            else:
+                dist_score = -abs(rod.x - ball.x)
             attack_score = (rod._base_x - field.depth / 2) * attack_dir
             return dist_score + self.offensive_bias * attack_score
 
-        best = heapq.nlargest(n_hands, team_rods, key=lambda pair: score(pair[1]))
+        best = heapq.nlargest(n_hands, team_rods, key=score)
         return {rod_idx for rod_idx, _ in best}
 
     def choose_pos(
