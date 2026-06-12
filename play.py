@@ -173,21 +173,8 @@ def main():
     if SAVE_ACTION_LOG and result.action_log:
         _print_action_log(result.action_log)
         _save_action_log(result.action_log, label0, label1)
-    if ANIMATE:
-        anim = replay_point(
-            field, result.frames,
-            show_reach=SHOW_REACH,
-            save_path=save_path,
-            interval=max(1, 1000 // FPS),
-            title=f"{label0} vs {label1}",
-        )
 
-        if SHOW_LIVE:
-            plt.show()
-        elif save_path:
-            os.startfile(os.path.abspath(save_path))
-
-    # Heatmap
+    # Heatmap (fast — open first)
     if TRACK_STATS and pos_grid is not None:
         if pos_grid.max() > 0:
             pos_grid /= pos_grid.max()
@@ -201,6 +188,20 @@ def main():
             plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=120)
             print(f"Saved heatmap to {heatmap_path}")
             os.startfile(os.path.abspath(heatmap_path))
+
+    if ANIMATE:
+        anim = replay_point(
+            field, result.frames,
+            show_reach=SHOW_REACH,
+            save_path=save_path,
+            interval=max(1, 1000 // FPS),
+            title=f"{label0} vs {label1}",
+        )
+
+        if SHOW_LIVE:
+            plt.show()
+        elif save_path:
+            os.startfile(os.path.abspath(save_path))
 
 
 if __name__ == "__main__":
