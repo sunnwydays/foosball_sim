@@ -11,6 +11,7 @@ import os
 import sys
 from datetime import datetime
 import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ---- Settings (edit these) ------------------------------------------------
@@ -20,7 +21,6 @@ KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 SHOW_REACH  = True      # draw player hitbox rectangles
 ANIMATE     = True      # build the replay animation and save output/replay.gif (slow)
-SHOW_LIVE   = False     # open a matplotlib window to watch live
 TRACK_STATS = True      # show heatmap after the point
 
 TEAM_0 = "HardOffense"          # strategy name or path to a genome .json
@@ -39,9 +39,6 @@ TEAM_0_ANTICIPATION = None
 TEAM_1_ANTICIPATION = None
 
 # ---------------------------------------------------------------------------
-
-if not SHOW_LIVE:
-    matplotlib.use("Agg")
 
 import config
 config.FPS = FPS
@@ -181,13 +178,10 @@ def main():
         _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
         draw_stats(field, pos_grid, goal_hits or [],
                    title=f"Heatmap — {label0} vs {label1}", ax=ax)
-        if SHOW_LIVE:
-            plt.show()
-        else:
-            heatmap_path = "output/heatmap.png"
-            plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=120)
-            print(f"Saved heatmap to {heatmap_path}")
-            os.startfile(os.path.abspath(heatmap_path))
+        heatmap_path = "output/heatmap.png"
+        plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=120)
+        print(f"Saved heatmap to {heatmap_path}")
+        os.startfile(os.path.abspath(heatmap_path))
 
     if ANIMATE:
         anim = replay_point(
@@ -198,9 +192,7 @@ def main():
             title=f"{label0} vs {label1}",
         )
 
-        if SHOW_LIVE:
-            plt.show()
-        elif save_path:
+        if save_path:
             os.startfile(os.path.abspath(save_path))
 
 
