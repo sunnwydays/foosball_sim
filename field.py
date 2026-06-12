@@ -159,8 +159,21 @@ class Rod:
     # ------------------------------------------------------------------
 
     def set_target_y(self, ty: float) -> None:
-        """Set intended target y, applying movement control noise if the target meaningfully changed."""
-        if abs(ty - self._intended_target_y) > self.movement_std * 0.5:
+        """Set intended target y, applying movement control noise.
+
+        Noise is resampled when the intent meaningfully changes, or when the
+        rod has settled at a noisy target that left it meaningfully off the
+        (clamped) intent. Without the settled check, a stationary ball freezes
+        the intent and a single bad noise draw strands the rod out of reach
+        forever (possession stall).
+        """
+        tol = self.movement_std * 0.5
+        intended_clamped = max(self._slide_min, min(self._slide_max, ty))
+        settled_off = (
+            abs(self.y_offset - self.target_y) < 1e-9
+            and abs(self.target_y - intended_clamped) > tol
+        )
+        if abs(ty - self._intended_target_y) > tol or settled_off:
             self._intended_target_y = ty
             noise = float(np.random.normal(0.0, self.movement_std))
             self.target_y = max(self._slide_min, min(self._slide_max, ty + noise))
