@@ -455,6 +455,28 @@ class Strategy(ABC):
             window_end=t + config.SWING_DURATION,
         )
 
+    def _cover_offset(self, rod: Rod, target_y: float) -> float:
+        """
+        Return the y_offset target that puts the best-covering player directly
+        on absolute y `target_y`, respecting the slide clamp.
+
+        Centering the rod (target_y - field.width / 2) is wrong in two cases:
+        when the required offset exceeds the slide range it clamps into a
+        coverage gap where NO player can reach the ball (possession stall),
+        and on even-player rods it centers the gap between players on the
+        ball instead of a player. Ties on coverage error are broken by least
+        travel from the current offset.
+        """
+        lo, hi = rod.slide_range
+        best_off = 0.0
+        best_key = None
+        for bp in rod._base_positions:
+            off = max(lo, min(hi, target_y - bp))
+            key = (abs(bp + off - target_y), abs(off - rod.y_offset))
+            if best_key is None or key < best_key:
+                best_key, best_off = key, off
+        return best_off
+
     def _predicted_y(self, rod: Rod, ball: BallState, field: Field) -> float:
         """Absolute y where ball is predicted to reach this rod's x, folded for
         side-wall bounces. Falls back to ball.y when no clean intercept."""
@@ -581,7 +603,7 @@ class SmackBall(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = self._predicted_y(rod, ball, field) - field.width / 2
+            target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
@@ -615,7 +637,7 @@ class AimAtGap(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = self._predicted_y(rod, ball, field) - field.width / 2
+            target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
@@ -647,7 +669,7 @@ class HardOffense(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = self._predicted_y(rod, ball, field) - field.width / 2
+            target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
 
             # Flip rod up if ball is moving away from opponent's goal past this rod
             up = False
@@ -719,7 +741,7 @@ class DefensiveWall(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = self._predicted_y(rod, ball, field) - field.width / 2
+            target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 
@@ -780,7 +802,7 @@ class TiltAndGap(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = self._predicted_y(rod, ball, field) - field.width / 2
+            target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
 
             # Flip up controlled rod if ball is retreating past it
             up = False
@@ -840,7 +862,7 @@ class ReactiveBlock(Strategy):
     ) -> dict[int, tuple[float, float, bool]]:
         targets = {}
         for rod_idx, rod in controlled_rods:
-            target_y = self._predicted_y(rod, ball, field) - field.width / 2
+            target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
             targets[rod_idx] = (target_y, 0.0, False)
         return targets
 

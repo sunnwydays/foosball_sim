@@ -148,7 +148,7 @@ class ParameterizedStrategy(Strategy):
             target_y_abs = track_y if not is_attacking else (
                 track_y * self.defensive_activity + (field.width / 2) * (1 - self.defensive_activity)
             )
-            target_y_offset = target_y_abs - field.width / 2
+            target_y_offset = self._cover_offset(rod, target_y_abs)
 
             # x_offset: defensive_activity=1 → max forward lean, 0.5 → neutral, 0 → lean back
             x_offset = (self.defensive_activity - 0.5) * 2 * config.ROD_X_REACH * attack_dir
