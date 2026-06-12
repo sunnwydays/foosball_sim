@@ -674,9 +674,9 @@ class HardOffense(Strategy):
             # Flip rod up if ball is moving away from opponent's goal past this rod
             up = False
             if rod.team == 0:
-                up = ball.vx < 0 and rod.x > ball.x
+                up = ball.vx < -config.STOP_THRESHOLD and rod.x > ball.x
             else:
-                up = ball.vx > 0 and rod.x < ball.x
+                up = ball.vx > config.STOP_THRESHOLD and rod.x < ball.x
 
             targets[rod_idx] = (target_y, 0.0, up)
         return targets
@@ -807,9 +807,9 @@ class TiltAndGap(Strategy):
             # Flip up controlled rod if ball is retreating past it
             up = False
             if rod.team == 0:
-                up = ball.vx < 0 and rod.x > ball.x
+                up = ball.vx < -config.STOP_THRESHOLD and rod.x > ball.x
             else:
-                up = ball.vx > 0 and rod.x < ball.x
+                up = ball.vx > config.STOP_THRESHOLD and rod.x < ball.x
 
             targets[rod_idx] = (target_y, 0.0, up)
         return targets
