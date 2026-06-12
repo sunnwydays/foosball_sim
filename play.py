@@ -27,6 +27,7 @@ TEAM_0 = "HardOffense"          # strategy name or path to a genome .json
 TEAM_1 = "TiltAndGap"           # e.g. "output/agents/rank0.json"
 
 SAVE_ACTION_LOG = True   # print action table to terminal + save JSON
+EXTENDED_LOG    = False  # also log every ball direction change
 
 # Skill overrides (e.g. (0.9, 0.9) for (accuracy, power_consistency), None for default)
 # Ignored for genome-based agents (skill genes are in the genome itself)
@@ -70,23 +71,32 @@ def build_strategy(spec: str):
     return STRATEGIES[spec]()
 
 
+_PHYSICS_ACTIONS = {"BOUNCE_X", "BOUNCE_Y", "DEFLECT", "STOP"}
+
 def _print_action_log(log) -> None:
-    counts = {"COMMIT": 0, "HIT": 0, "WHIFF": 0, "PASSIVE": 0}
+    counts: dict[str, int] = {}
     for e in log:
         counts[e.action] = counts.get(e.action, 0) + 1
     summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
     print(f"\n=== Action Log ({len(log)} events - {summary}) ===")
     for e in log:
-        if e.action == "COMMIT":
-            vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
-        elif e.action == "HIT":
-            vel = f"  actual=(vx={e.actual_vel[0]:+.2f}, vy={e.actual_vel[1]:+.2f})"
-        elif e.action == "WHIFF":
-            vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+        if e.action in _PHYSICS_ACTIONS:
+            before = f"(vx={e.intended_vel[0]:+.2f},vy={e.intended_vel[1]:+.2f})"
+            after  = f"(vx={e.actual_vel[0]:+.2f},vy={e.actual_vel[1]:+.2f})"
+            print(f"  t={e.game_time:5.2f}s  {e.action:<9}  "
+                  f"ball=({e.ball_pos[0]:.1f},{e.ball_pos[1]:.1f})  "
+                  f"{before} -> {after}  reach=[{e.rod_label}]")
         else:
-            vel = ""
-        print(f"  t={e.game_time:5.2f}s  {e.rod_label:<10}  {e.action:<7}  "
-              f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}")
+            if e.action == "COMMIT":
+                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+            elif e.action == "HIT":
+                vel = f"  actual=(vx={e.actual_vel[0]:+.2f}, vy={e.actual_vel[1]:+.2f})"
+            elif e.action == "WHIFF":
+                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+            else:
+                vel = ""
+            print(f"  t={e.game_time:5.2f}s  {e.rod_label:<10}  {e.action:<7}  "
+                  f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}")
 
 
 def _save_action_log(log, label0: str, label1: str) -> None:
@@ -156,6 +166,7 @@ def main():
         pos_grid=pos_grid,
         goal_hits=goal_hits,
         collect_action_log=SAVE_ACTION_LOG,
+        extended_log=EXTENDED_LOG,
     )
 
     winner_str = f"Team {result.winner}" if result.winner is not None else "Draw"

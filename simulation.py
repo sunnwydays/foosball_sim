@@ -101,6 +101,7 @@ def simulate_point(
     pos_grid:           Optional[np.ndarray] = None,
     goal_hits:          Optional[list] = None,
     collect_action_log: bool = False,
+    extended_log:       bool = False,
 ) -> PointResult:
     """
     Simulate one foosball point with time-stepped physics.
@@ -302,9 +303,43 @@ def simulate_point(
         # --------------------------------------------------------------
         # 4. Move ball
         # --------------------------------------------------------------
+        _vx_pre, _vy_pre = ball.vx, ball.vy
+
         ball_result = step_ball(ball, field, dt,
                                 ball_radius=config.BALL_RADIUS,
                                 pos_grid=pos_grid)
+
+        if extended_log:
+            _dvx = ball.vx - _vx_pre
+            _dvy = ball.vy - _vy_pre
+            _sign_x = (_vx_pre * ball.vx < 0)
+            _sign_y = (_vy_pre * ball.vy < 0)
+            _delta  = abs(_dvx) + abs(_dvy)
+            if abs(ball.vx) < 0.001 and abs(ball.vy) < 0.001 and (abs(_vx_pre) > 0.01 or abs(_vy_pre) > 0.01):
+                _cause: Optional[str] = 'STOP'
+            elif _sign_x:
+                _cause = 'BOUNCE_X'
+            elif _sign_y:
+                _cause = 'BOUNCE_Y'
+            elif _delta > 0.15:
+                _cause = 'DEFLECT'
+            else:
+                _cause = None
+            if _cause is not None:
+                _reach = ','.join(
+                    _rod_labels[_ri] for _ri, _rr in enumerate(field.rods)
+                    if not _rr.up
+                    and abs(ball.x - _rr._base_x) <= _rr.rod_x_reach + _rr.thickness / 2 + config.BALL_RADIUS
+                ) or '-'
+                _action_log.append(ActionLogEntry(
+                    game_time    = game_time,
+                    team         = -1,
+                    rod_label    = _reach,
+                    action       = _cause,
+                    ball_pos     = (ball.x, ball.y),
+                    intended_vel = (_vx_pre, _vy_pre),
+                    actual_vel   = (ball.vx, ball.vy),
+                ))
 
         # --- Anti-stalling checks ---
         teams_in_reach = _teams_with_reach(ball, field)
