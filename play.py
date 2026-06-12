@@ -15,11 +15,11 @@ import matplotlib.pyplot as plt
 
 # ---- Settings (edit these) ------------------------------------------------
 
-SEED        = 36         # RNG seed (change for different games, None for random)
+SEED        = 36        # RNG seed (change for different games, None for random)
 KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 SHOW_REACH  = True      # draw player hitbox rectangles
-ANIMATE     = False      # build the replay animation and save output/replay.gif (slow; off = action log only)
+ANIMATE     = True      # build the replay animation and save output/replay.gif (slow)
 SHOW_LIVE   = False     # open a matplotlib window to watch live
 TRACK_STATS = True      # show heatmap after the point
 
