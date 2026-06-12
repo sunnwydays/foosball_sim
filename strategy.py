@@ -103,6 +103,66 @@ def _best_player_deflection(
     return best if best is not None else (aim_x, aim_y)
 
 
+def _open_gaps(opp_rod: Rod, field: Field) -> list[tuple[float, float]]:
+    """
+    Open y-intervals on opp_rod's plane that the ball can pass through.
+    Blocked intervals are player center +/- (player half-width + ball radius),
+    since the ball's edge must clear the player's edge.
+    """
+    positions = sorted(opp_rod.player_positions)
+    reach = opp_rod.width / 2 + config.BALL_RADIUS
+
+    gaps: list[tuple[float, float]] = []
+    if positions[0] - reach > 0.0:
+        gaps.append((0.0, positions[0] - reach))
+    for i in range(len(positions) - 1):
+        lo = positions[i] + reach
+        hi = positions[i + 1] - reach
+        if hi > lo:
+            gaps.append((lo, hi))
+    if positions[-1] + reach < field.width:
+        gaps.append((positions[-1] + reach, field.width))
+    return gaps
+
+
+def _aim_through_gap(
+    origin_x: float, origin_y: float,
+    opp_rod: Rod, goal,
+    field: Field,
+) -> Optional[tuple[float, float]]:
+    """
+    Aim point (on the goal plane) for a straight shot from (origin_x, origin_y)
+    that passes through an open gap in opp_rod AND enters the goal mouth.
+
+    Projects the goal mouth back onto the defender's plane, intersects that
+    window with the open gaps, and aims through the center of the widest
+    overlap. Returns None when no gap lines up with the goal.
+    """
+    span = goal.x - origin_x
+    if abs(span) < 1e-6:
+        return None
+    frac = (opp_rod.x - origin_x) / span
+    if not (0.0 < frac < 1.0):
+        return None
+
+    win_lo = origin_y + (goal.y_min - origin_y) * frac
+    win_hi = origin_y + (goal.y_max - origin_y) * frac
+
+    best: Optional[tuple[float, float]] = None
+    best_width = 0.0
+    for lo, hi in _open_gaps(opp_rod, field):
+        o_lo = max(lo, win_lo)
+        o_hi = min(hi, win_hi)
+        if o_hi - o_lo > best_width:
+            best_width = o_hi - o_lo
+            best = (o_lo, o_hi)
+
+    if best is None:
+        return None
+    gap_y = (best[0] + best[1]) / 2.0
+    return goal.x, origin_y + (gap_y - origin_y) / frac
+
+
 def _fold_into_field(y: float, width: float) -> float:
     """Triangle-wave fold: reflect y into [0, width] as the ball bounces off side walls."""
     if width <= 0:
@@ -455,37 +515,43 @@ class Strategy(ABC):
         return rod.x, other
 
     def _find_gap_target(
-        self, rod: Rod, ball: BallState, field: Field
+        self, rod: Rod, ball: BallState, field: Field, skip_up: bool = False,
     ) -> tuple[float, float]:
-        """Find (aim_x, aim_y) through the largest gap in the nearest opponent rod."""
+        """
+        Find (aim_x, aim_y) that threads a gap in the nearest opponent rod and
+        continues into the goal mouth. Falls back to the largest gap (advances
+        the ball) when no gap lines up with the goal, then to goal center when
+        the defender plane is fully blocked.
+
+        skip_up=True ignores opponent rods that are flipped up (can't block).
+        """
         team = rod.team
         goal = field.goal_for_attacker(team)
 
         if team == 0:
-            opp_rods = [r for r in field.rods if r.team != team and r.x > rod.x]
+            opp_rods = [r for r in field.rods if r.team != team and r.x > rod.x
+                        and not (skip_up and r.up)]
             opp_rods.sort(key=lambda r: r.x)
         else:
-            opp_rods = [r for r in field.rods if r.team != team and r.x < rod.x]
+            opp_rods = [r for r in field.rods if r.team != team and r.x < rod.x
+                        and not (skip_up and r.up)]
             opp_rods.sort(key=lambda r: -r.x)
 
         if not opp_rods:
             return goal.x, (goal.y_min + goal.y_max) / 2
 
         nearest = opp_rods[0]
-        positions = sorted(nearest.player_positions)
-        reach = nearest.width / 2
 
-        gaps: list[tuple[float, float]] = []
-        if positions[0] - reach > 0:
-            gaps.append((0.0, positions[0] - reach))
-        for i in range(len(positions) - 1):
-            lo = positions[i] + reach
-            hi = positions[i + 1] - reach
-            if hi > lo:
-                gaps.append((lo, hi))
-        if positions[-1] + reach < field.width:
-            gaps.append((positions[-1] + reach, field.width))
+        # Shot origin: the player that will actually take the shot, matching
+        # the nearest-player choice made by _commit_swing.
+        predicted_y = self._predicted_y(rod, ball, field)
+        origin_y = min(rod.player_positions, key=lambda py: abs(py - predicted_y))
 
+        aim = _aim_through_gap(rod.x, origin_y, nearest, goal, field)
+        if aim is not None:
+            return aim
+
+        gaps = _open_gaps(nearest, field)
         if gaps:
             best = max(gaps, key=lambda g: g[1] - g[0])
             return nearest.x, (best[0] + best[1]) / 2
@@ -750,51 +816,8 @@ class TiltAndGap(Strategy):
         field: Field,
         t: float,
     ) -> Optional[SwingCommitment]:
-        aim_x, aim_y = self._find_gap_target(rod, ball, field)
+        aim_x, aim_y = self._find_gap_target(rod, ball, field, skip_up=True)
         return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
-
-    @staticmethod
-    def _find_gap_target(
-        rod: Rod, ball: BallState, field: Field
-    ) -> tuple[float, float]:
-        """Find aim point through the largest gap in the nearest defender."""
-        team = rod.team
-        goal = field.goal_for_attacker(team)
-
-        if team == 0:
-            opp_rods = [r for r in field.rods
-                        if r.team != team and r.x > rod.x and not r.up]
-            opp_rods.sort(key=lambda r: r.x)
-        else:
-            opp_rods = [r for r in field.rods
-                        if r.team != team and r.x < rod.x and not r.up]
-            opp_rods.sort(key=lambda r: -r.x)
-
-        if not opp_rods:
-            return goal.x, (goal.y_min + goal.y_max) / 2
-
-        nearest = opp_rods[0]
-        positions = sorted(nearest.player_positions)
-        reach = nearest.width / 2
-
-        gaps: list[tuple[float, float]] = []
-        first_top = positions[0] - reach
-        if first_top > 0:
-            gaps.append((0.0, first_top))
-        for i in range(len(positions) - 1):
-            lo = positions[i] + reach
-            hi = positions[i + 1] - reach
-            if hi > lo:
-                gaps.append((lo, hi))
-        last_bot = positions[-1] + reach
-        if last_bot < field.width:
-            gaps.append((last_bot, field.width))
-
-        if gaps:
-            best = max(gaps, key=lambda g: g[1] - g[0])
-            return nearest.x, (best[0] + best[1]) / 2
-
-        return goal.x, (goal.y_min + goal.y_max) / 2
 
 
 # ---------------------------------------------------------------------------
@@ -851,5 +874,5 @@ class ReactiveBlock(Strategy):
         field: Field,
         t: float,
     ) -> Optional[SwingCommitment]:
-        aim_x, aim_y = TiltAndGap._find_gap_target(rod, ball, field)
+        aim_x, aim_y = self._find_gap_target(rod, ball, field, skip_up=True)
         return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
