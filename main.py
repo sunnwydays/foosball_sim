@@ -27,8 +27,10 @@ def save_heatmap(field: Field, result, title: str, filename: str) -> None:
     if result.pos_grid is None:
         return
     _, ax = plt.subplots(figsize=(10, 6), facecolor="#1a1a1a")
-    ax.get_figure().subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.07)
+    ax.get_figure().subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.13)
     draw_stats(field, result.pos_grid, result.goal_hits or [],
+               stall_hits=result.stall_hits,
+               dead_hits=result.dead_hits,
                title=title, ax=ax)
     os.makedirs("output", exist_ok=True)
     path = os.path.join("output", filename)

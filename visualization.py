@@ -351,21 +351,21 @@ def draw_stats(
     field: Field,
     pos_grid: np.ndarray,
     goal_hits: list,
+    stall_hits: Optional[list] = None,
+    dead_hits:  Optional[list] = None,
     title: str = "Ball Heatmap & Goal Origins",
     sigma: float = 1.5,
     ax: Optional[plt.Axes] = None,
 ) -> plt.Axes:
     """
-    Overlay a ball-position heatmap and goal-scoring hit locations on the field.
+    Overlay a ball-position heatmap and outcome markers on the field.
 
-    Parameters
-    ----------
-    field     : Field instance for layout.
-    pos_grid  : normalized (0-1) ball position grid, shape (depth_cells, width_cells).
-    goal_hits : list of (x, y) tuples — last active hit before each goal.
-    sigma     : gaussian blur sigma in grid cells (controls fade/bleed).
-    ax        : existing Axes to draw on; creates a new figure if None.
+    goal_hits  : list of (x, y, goal_team, is_self_goal) — last active hit before each goal.
+    stall_hits : list of (x, y, possessing_team) — ball position at stallout.
+    dead_hits  : list of (x, y) — ball position at dead-ball draw.
     """
+    import matplotlib.lines as mlines
+
     smoothed = _gaussian_blur(pos_grid.astype(float), sigma=sigma)
 
     if smoothed.max() > 0:
@@ -373,7 +373,7 @@ def draw_stats(
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(10, 6), facecolor="#1a1a1a")
-        fig.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.07)
+        fig.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.13)
 
     # Base layer: field
     draw_field(field, ax=ax)
@@ -391,15 +391,68 @@ def draw_stats(
     )
     ax.set_aspect("equal")
 
-    # Top layer: goal hit origins, coloured by which team's goal the ball entered
-    # p = (x, y, goal_team); goal_team = team whose goal was scored in (0=blue, 1=red)
-    GOAL_COLOR = {0: "#1a60c0", 1: "#c03010"}   # blue team's goal → blue; red team's goal → red
-    if goal_hits:
-        for goal_team, color in GOAL_COLOR.items():
-            pts = [(p[0], p[1]) for p in goal_hits if p[2] == goal_team]
+    # Color palettes
+    SCORE_COLOR = {0: "#1a60c0", 1: "#c03010"}   # scorer's team color
+    STALL_COLOR = {0: "#6a90c8", 1: "#c07060"}   # stalling team color, desaturated
+
+    legend_handles = []
+
+    # Layer 3: dead-ball draws (grey)
+    if dead_hits:
+        xs = [p[0] for p in dead_hits]
+        ys = [p[1] for p in dead_hits]
+        ax.scatter(xs, ys, color="#888888", s=8, alpha=0.6, zorder=3)
+        legend_handles.append(mlines.Line2D([], [], color="#888888", marker='o',
+                                            linestyle='None', markersize=5, label="Dead ball"))
+
+    # Layer 4: stall positions (desaturated team color)
+    if stall_hits:
+        for team, color in STALL_COLOR.items():
+            pts = [(p[0], p[1]) for p in stall_hits if p[2] == team]
             if pts:
                 ax.scatter([p[0] for p in pts], [p[1] for p in pts],
-                           color=color, s=12, alpha=0.8, zorder=3)
+                           color=color, s=18, alpha=0.85, zorder=4)
+        for team, color in STALL_COLOR.items():
+            if any(p[2] == team for p in stall_hits):
+                label = f"T{team} stall"
+                legend_handles.append(mlines.Line2D([], [], color=color, marker='o',
+                                                    linestyle='None', markersize=5, label=label))
+
+    # Layer 5: goal hit origins — normal goals (circle) and self-goals (x)
+    # p = (x, y, goal_team, is_self_goal); winner = 1 - goal_team
+    if goal_hits:
+        for goal_team, color in SCORE_COLOR.items():
+            scorer = 1 - goal_team
+            normal   = [(p[0], p[1]) for p in goal_hits if p[2] == goal_team and not (len(p) > 3 and p[3])]
+            selfgoal = [(p[0], p[1]) for p in goal_hits if p[2] == goal_team and (len(p) > 3 and p[3])]
+            if normal:
+                ax.scatter([p[0] for p in normal], [p[1] for p in normal],
+                           color=color, s=12, alpha=0.8, zorder=5, marker='o')
+                legend_handles.append(mlines.Line2D([], [], color=color, marker='o',
+                                                    linestyle='None', markersize=5,
+                                                    label=f"T{scorer} goal"))
+            if selfgoal:
+                ax.scatter([p[0] for p in selfgoal], [p[1] for p in selfgoal],
+                           color=color, s=20, alpha=0.9, zorder=5, marker='x',
+                           linewidths=1.5)
+                legend_handles.append(mlines.Line2D([], [], color=color, marker='x',
+                                                    linestyle='None', markersize=6,
+                                                    markeredgewidth=1.5,
+                                                    label=f"T{scorer} self-goal"))
+
+    # Legend in the bottom black padding (figure coordinates)
+    if legend_handles:
+        ax.get_figure().legend(
+            handles=legend_handles,
+            loc='lower center',
+            bbox_to_anchor=(0.5, 0.01),
+            ncol=len(legend_handles),
+            fontsize=7,
+            framealpha=0.5,
+            facecolor='#1a1a1a',
+            edgecolor='#444444',
+            labelcolor='white',
+        )
 
     ax.set_title(title, color="white", pad=6)
     return ax
