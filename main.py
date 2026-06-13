@@ -26,12 +26,13 @@ def save_heatmap(field: Field, result, title: str, filename: str) -> None:
     """Render a heatmap to output/<filename> and open it (non-blocking)."""
     if result.pos_grid is None:
         return
-    _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
+    _, ax = plt.subplots(figsize=(10, 6), facecolor="#1a1a1a")
+    ax.get_figure().subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.07)
     draw_stats(field, result.pos_grid, result.goal_hits or [],
                title=title, ax=ax)
     os.makedirs("output", exist_ok=True)
     path = os.path.join("output", filename)
-    plt.savefig(path, facecolor="#1a1a1a", dpi=120)
+    plt.savefig(path, facecolor="#1a1a1a", dpi=100)
     plt.close()
     print(f"Saved heatmap to {path}")
     os.startfile(os.path.abspath(path))

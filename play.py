@@ -186,11 +186,13 @@ def main():
     if TRACK_STATS and pos_grid is not None:
         if pos_grid.max() > 0:
             pos_grid /= pos_grid.max()
-        _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
+        _, ax = plt.subplots(figsize=(10, 6), facecolor="#1a1a1a")
+        fig = ax.get_figure()
+        fig.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.07)
         draw_stats(field, pos_grid, goal_hits or [],
                    title=f"Heatmap — {label0} vs {label1}", ax=ax)
         heatmap_path = "output/heatmap.png"
-        plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=120)
+        plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=100)
         print(f"Saved heatmap to {heatmap_path}")
         os.startfile(os.path.abspath(heatmap_path))
 

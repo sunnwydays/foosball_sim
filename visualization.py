@@ -205,10 +205,10 @@ def draw_field(
         )
         ax.add_patch(ball_circle)
 
-    ax.set_xlim(-6, field.depth + 6)
-    ax.set_ylim(-2, field.width + 4)
+    ax.set_xlim(-5.5, field.depth + 5.5)
+    ax.set_ylim(-1, field.width + 2.5)
     ax.set_aspect("equal")
-    ax.set_title(title, color="white", pad=8)
+    ax.set_title(title, color="white", pad=6)
     ax.set_facecolor(FIELD_GREEN)
     ax.tick_params(colors="white")
     for spine in ax.spines.values():
@@ -250,6 +250,7 @@ def replay_point(
     """
     fig, ax = plt.subplots(figsize=(10, 6))
     fig.patch.set_facecolor(fig_facecolor)
+    fig.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.07)
 
     # Pre-extract ball trail coordinates
     ball_xs = [f.ball_x for f in frames]
@@ -301,8 +302,8 @@ def replay_point(
             )
             ax.add_patch(hit_circle)
 
-        ax.set_xlim(-6, field.depth + 6)
-        ax.set_ylim(-2, field.width + 4)
+        ax.set_xlim(-5.5, field.depth + 5.5)
+        ax.set_ylim(-1, field.width + 2.5)
         ax.set_aspect("equal")
         ax.set_facecolor(FIELD_GREEN)
         ax.tick_params(colors="white")
@@ -312,7 +313,7 @@ def replay_point(
         event_str = f"  [{fr.event}]" if fr.event else ""
         ax.set_title(
             f"{title}  |  t={fr.time:.2f}s  tick {fr.tick}{event_str}",
-            color="white", pad=8,
+            color="white", pad=6,
         )
 
     anim = animation.FuncAnimation(
@@ -371,8 +372,8 @@ def draw_stats(
         smoothed = smoothed / smoothed.max()
 
     if ax is None:
-        fig, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
-        fig.subplots_adjust(left=0.05, right=0.95, top=0.92, bottom=0.05)
+        fig, ax = plt.subplots(figsize=(10, 6), facecolor="#1a1a1a")
+        fig.subplots_adjust(left=0.07, right=0.93, top=0.94, bottom=0.07)
 
     # Base layer: field
     draw_field(field, ax=ax)
@@ -400,8 +401,7 @@ def draw_stats(
                 ax.scatter([p[0] for p in pts], [p[1] for p in pts],
                            color=color, s=12, alpha=0.8, zorder=3)
 
-    ax.set_title(title, color="white", pad=8)
-    ax.get_figure().tight_layout()
+    ax.set_title(title, color="white", pad=6)
     return ax
 
 
