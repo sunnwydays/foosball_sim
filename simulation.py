@@ -64,11 +64,13 @@ class PointResult:
     frames     : list of Frame snapshots (only if record=True).
     action_log : list of ActionLogEntry (only if collect_action_log=True).
     """
-    winner:     Optional[int]
-    ticks:      int
-    time:       float
-    frames:     list[Frame]            = dc_field(default_factory=list)
-    action_log: list[ActionLogEntry]   = dc_field(default_factory=list)
+    winner:      Optional[int]
+    ticks:       int
+    time:        float
+    frames:      list[Frame]          = dc_field(default_factory=list)
+    action_log:  list[ActionLogEntry] = dc_field(default_factory=list)
+    outcome:     str                  = 'goal'   # 'goal' | 'stallout' | 'dead_ball' | 'timeout'
+    is_self_goal: bool                = False
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +157,8 @@ def simulate_point(
     seed:               Optional[int] = None,
     pos_grid:           Optional[np.ndarray] = None,
     goal_hits:          Optional[list] = None,
+    stall_hits:         Optional[list] = None,
+    dead_hits:          Optional[list] = None,
     collect_action_log: bool = False,
     extended_log:       bool = False,
 ) -> PointResult:
@@ -212,8 +216,9 @@ def simulate_point(
     }
 
     # Double-hit tracking: (rod_idx, player_idx) of last hit
-    last_hit: Optional[tuple[int, int]] = None
-    last_hit_pos: Optional[tuple[float, float]] = None  # ball pos of last active hit
+    last_hit:      Optional[tuple[int, int]]    = None
+    last_hit_pos:  Optional[tuple[float, float]] = None  # ball pos of last active hit
+    last_hit_team: Optional[int]                = None   # team of last active swing
 
     frames: list[Frame] = []
 
@@ -401,31 +406,40 @@ def simulate_point(
         teams_in_reach = _teams_with_reach(ball, field)
 
         if ball.stopped and not teams_in_reach:
-            return PointResult(winner=None, ticks=tick + 1, time=game_time + dt, frames=frames, action_log=_action_log)
+            if dead_hits is not None:
+                dead_hits.append((ball.x, ball.y))
+            return PointResult(winner=None, ticks=tick + 1, time=game_time + dt,
+                               frames=frames, action_log=_action_log, outcome='dead_ball')
 
         if len(teams_in_reach) == 1:
             possessing = next(iter(teams_in_reach))
             possession_timer[possessing] += dt
             possession_timer[1 - possessing] = 0.0
             if possession_timer[possessing] >= config.POSSESSION_LIMIT:
-                return PointResult(winner=1 - possessing, ticks=tick + 1, time=game_time + dt, frames=frames, action_log=_action_log)
+                if stall_hits is not None:
+                    stall_hits.append((ball.x, ball.y, possessing))
+                return PointResult(winner=1 - possessing, ticks=tick + 1, time=game_time + dt,
+                                   frames=frames, action_log=_action_log, outcome='stallout')
         else:
             possession_timer[0] = possession_timer[1] = 0.0
 
         # Check for goal
         if ball_result.startswith('goal:'):
             winner = int(ball_result.split(':')[1])
+            is_self_goal = last_hit_team is not None and last_hit_team != winner
             if goal_hits is not None and last_hit_pos is not None:
                 goal_team = 1 - winner  # team whose goal the ball entered
-                goal_hits.append((*last_hit_pos, goal_team))
+                goal_hits.append((*last_hit_pos, goal_team, is_self_goal))
             if record:
                 frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}'))
             return PointResult(
-                winner     = winner,
-                ticks      = tick + 1,
-                time       = game_time + dt,
-                frames     = frames,
-                action_log = _action_log,
+                winner       = winner,
+                ticks        = tick + 1,
+                time         = game_time + dt,
+                frames       = frames,
+                action_log   = _action_log,
+                outcome      = 'goal',
+                is_self_goal = is_self_goal,
             )
 
         # --------------------------------------------------------------
@@ -479,8 +493,9 @@ def simulate_point(
                 team_states[opp_team].reaction_timer = config.REACTION_TIME
 
                 # Update last-hit tracking
-                last_hit = (rod_idx, player_idx)
-                last_hit_pos = (ball.x, ball.y)
+                last_hit      = (rod_idx, player_idx)
+                last_hit_pos  = (ball.x, ball.y)
+                last_hit_team = team
                 event = 'hit'
 
                 # Only one hit per tick (first overlap wins)
@@ -525,7 +540,8 @@ def simulate_point(
 
         # Reset last_hit if ball stopped
         if ball.stopped:
-            last_hit = None
+            last_hit      = None
+            last_hit_team = None
 
         # --------------------------------------------------------------
         # 6. Record frame
@@ -540,6 +556,7 @@ def simulate_point(
         time       = config.MAX_GAME_TIME,
         frames     = frames,
         action_log = _action_log,
+        outcome    = 'timeout',
     )
 
 
