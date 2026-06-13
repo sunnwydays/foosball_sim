@@ -6,6 +6,10 @@ Run with:  python main.py
 Experiments use the time-stepped continuous simulation engine.
 """
 
+import os
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from field import Field
@@ -16,6 +20,21 @@ from visualization import draw_stats
 
 
 N = 5000   # simulations per experiment
+
+
+def save_heatmap(field: Field, result, title: str, filename: str) -> None:
+    """Render a heatmap to output/<filename> and open it (non-blocking)."""
+    if result.pos_grid is None:
+        return
+    _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
+    draw_stats(field, result.pos_grid, result.goal_hits or [],
+               title=title, ax=ax)
+    os.makedirs("output", exist_ok=True)
+    path = os.path.join("output", filename)
+    plt.savefig(path, facecolor="#1a1a1a", dpi=120)
+    plt.close()
+    print(f"Saved heatmap to {path}")
+    os.startfile(os.path.abspath(path))
 
 
 def run_experiment(
@@ -79,11 +98,9 @@ def main() -> None:
     print(f"{'=' * 60}")
     print(result5)
 
-    if result5.pos_grid is not None:
-        _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
-        draw_stats(Field(), result5.pos_grid, result5.goal_hits or [],
-                   title="Exp 5 — HardOffense vs AimAtGap", ax=ax)
-        plt.show()
+    save_heatmap(Field(), result5,
+                 title="Exp 5 — HardOffense vs AimAtGap",
+                 filename="exp5_hardoffense_vs_aimatgap.png")
 
     run_experiment(
         "Exp 6 - DefensiveWall vs HardOffense",
@@ -113,11 +130,9 @@ def main() -> None:
     print(f"{'=' * 60}")
     print(result9)
 
-    if result9.pos_grid is not None:
-        _, ax = plt.subplots(figsize=(14, 7), facecolor="#1a1a1a")
-        draw_stats(Field(), result9.pos_grid, result9.goal_hits or [],
-                   title="Exp 9 — ReactiveBlock vs DefensiveWall", ax=ax)
-        plt.show()
+    save_heatmap(Field(), result9,
+                 title="Exp 9 — ReactiveBlock vs DefensiveWall",
+                 filename="exp9_reactiveblock_vs_defensivewall.png")
 
 if __name__ == "__main__":
     main()
