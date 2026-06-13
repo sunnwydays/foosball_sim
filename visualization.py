@@ -36,6 +36,10 @@ LINE_WHITE  = "#ffffff"
 WALL_GRAY   = "#888888"
 BALL_COLOR  = "#f5f542"
 
+# Per-frame lerp toward the target foot x in the replay (0..1, higher = snappier).
+# Purely cosmetic: slides the opaque foot toward the ball when contact is possible.
+FOOT_EASE_ALPHA = 0.35
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -72,8 +76,15 @@ def _draw_rods_from_offsets(
     rod_ctrl: list[bool],
     rod_ups: list[bool],
     show_reach: bool = False,
+    foot_x_override: Optional[list[float]] = None,
 ) -> None:
-    """Draw rods using explicit offset arrays (from a Frame)."""
+    """Draw rods using explicit offset arrays (from a Frame).
+
+    foot_x_override : if given, the opaque foot of each rod is drawn at
+        `_base_x + foot_x_override[i]` instead of the rod's x_offset. This is a
+        cosmetic embellishment used by the replay to slide the foot toward the
+        ball during contact; it does not move the rod line or reach box.
+    """
     for i, rod in enumerate(field.rods):
         color = TEAM_COLOR[rod.team]
         alpha = 0.2 if rod_ups[i] else 1.0
@@ -89,10 +100,13 @@ def _draw_rods_from_offsets(
             color=color, linewidth=1.5, alpha=0.4, zorder=2,
         )
 
+        # Foot x: rod.x by default, or the eased reach override when provided.
+        foot_x = rod.x if foot_x_override is None else rod._base_x + foot_x_override[i]
+
         for py in rod.player_positions:
-            # Player foot — fixed size, shifted by x_offset
+            # Player foot — fixed size, shifted by x_offset (or reach override)
             player_rect = patches.Rectangle(
-                (rod.x - rod.thickness / 2, py - rod.width / 2),
+                (foot_x - rod.thickness / 2, py - rod.width / 2),
                 rod.thickness, rod.width,
                 linewidth=0, facecolor=color, alpha=alpha, zorder=3,
             )
@@ -113,6 +127,49 @@ def _draw_rods_from_offsets(
 
         # Restore
         rod.y_offset, rod.x_offset = orig_y, orig_x
+
+
+def _compute_foot_offsets(field: Field, frames: list[Frame]) -> list[list[float]]:
+    """Eased per-frame foot x_offsets for the replay (cosmetic only).
+
+    For each frame and rod, the foot targets the ball's x (clamped to the rod's
+    reach) when the rod is controlled and the ball sits inside its reach box;
+    otherwise it targets the rod's actual rest offset. A forward exponential lerp
+    smooths the motion so the foot slides rather than snaps. This never touches
+    sim state — it only derives display positions from recorded frames.
+
+    Returns foot_xs indexed [frame_idx][rod_idx].
+    """
+    foot_xs: list[list[float]] = []
+    prev: Optional[list[float]] = None
+
+    for fr in frames:
+        targets: list[float] = []
+        for i, rod in enumerate(field.rods):
+            orig_y = rod.y_offset
+            rod.y_offset = fr.rod_ys[i]
+            in_reach = (
+                fr.rod_ctrl[i]
+                and rod.player_in_box(fr.ball_x, fr.ball_y, config.BALL_RADIUS) is not None
+            )
+            if in_reach:
+                raw = fr.ball_x - rod._base_x
+                target = max(-rod.rod_x_reach, min(rod.rod_x_reach, raw))
+            else:
+                target = fr.rod_xs[i]
+            rod.y_offset = orig_y
+            targets.append(target)
+
+        if prev is None:
+            disp = list(targets)
+        else:
+            disp = [
+                p + FOOT_EASE_ALPHA * (t - p) for p, t in zip(prev, targets)
+            ]
+        foot_xs.append(disp)
+        prev = disp
+
+    return foot_xs
 
 
 # ---------------------------------------------------------------------------
@@ -198,13 +255,17 @@ def replay_point(
     ball_xs = [f.ball_x for f in frames]
     ball_ys = [f.ball_y for f in frames]
 
+    # Pre-compute eased foot offsets so feet slide toward the ball on contact.
+    foot_xs = _compute_foot_offsets(field, frames)
+
     def _update(frame_idx: int) -> None:
         ax.cla()
         fr = frames[frame_idx]
 
         _draw_base_field(ax, field)
         _draw_rods_from_offsets(
-            ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, fr.ups, show_reach
+            ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, fr.ups, show_reach,
+            foot_x_override=foot_xs[frame_idx],
         )
 
         # Ball trail
