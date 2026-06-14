@@ -160,18 +160,20 @@ def _compute_foot_offsets(field: Field, frames: list[Frame]) -> list[list[float]
                 fr.rod_ctrl[i]
                 and rod.player_in_box(fr.ball_x, fr.ball_y, config.BALL_RADIUS) is not None
             )
-            fwd_raw  = fr.ball_x - rod._base_x
-            fwd      = max(-rod.rod_x_reach, min(rod.rod_x_reach, fwd_raw))
+            fwd_raw = fr.ball_x - rod._base_x
+            fwd     = max(-rod.rod_x_reach, min(rod.rod_x_reach, fwd_raw))
 
             swing = swings[i]
             if swing is not None:
-                active_start = swing[0]
+                active_start, _, vx = swing
+                # Use the committed shot direction
+                fwd_sign = 1.0 if vx >= 0 else -1.0
                 if fr.time < active_start:
-                    # Backswing: foot retracts opposite to the shot direction
-                    target = -fwd * SWING_ANIM_BACKSWING
+                    # Backswing: foot retracts opposite to intended shot direction
+                    target = -fwd_sign * rod.rod_x_reach * SWING_ANIM_BACKSWING
                 else:
-                    # Active window: foot leads toward the ball
-                    target = fwd if in_reach else fr.rod_xs[i]
+                    # Active window: foot lunges in shot direction, tracks ball when in reach
+                    target = fwd if in_reach else fwd_sign * rod.rod_x_reach
             elif in_reach:
                 target = fwd
             else:

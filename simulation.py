@@ -581,7 +581,7 @@ def _make_frame(
         ups        = [r.up for r in field.rods],
         event      = event,
         rod_swings = [
-            (r.pending_swing.active_start, r.pending_swing.window_end)
+            (r.pending_swing.active_start, r.pending_swing.window_end, r.pending_swing.vx)
             if r.pending_swing is not None else None
             for r in field.rods
         ],
