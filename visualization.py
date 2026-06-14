@@ -226,6 +226,7 @@ def replay_point(
     frames:        list[Frame],
     show_reach:    bool  = False,
     interval:      int   = 100,
+    gif_slowdown:  float = 1,
     title:         str   = "Foosball Replay",
     trail_length:  int   = 20,
     save_path:     Optional[str] = None,
@@ -321,10 +322,11 @@ def replay_point(
     )
 
     if save_path:
+        save_fps = max(1, round((1000 // interval) / gif_slowdown))
         if save_path.endswith('.gif'):
-            anim.save(save_path, writer='pillow', fps=1000 // interval)
+            anim.save(save_path, writer='pillow', fps=save_fps)
         else:
-            anim.save(save_path, fps=1000 // interval)
+            anim.save(save_path, fps=save_fps)
         print(f"Saved animation to {save_path}")
 
     return anim

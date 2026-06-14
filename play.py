@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 SEED        = 36        # RNG seed (change for different games, None for random)
 KICKOFF     = 1         # which team kicks off (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
+GIF_SLOWDOWN = 1        # >1 saves GIF at lower fps (e.g. 2 = half-speed)
 SHOW_REACH  = True      # draw player hitbox rectangles
 ANIMATE     = True      # build the replay animation and save output/replay.gif (slow)
 TRACK_STATS = True      # show heatmap after the point
@@ -202,6 +203,7 @@ def main():
             show_reach=SHOW_REACH,
             save_path=save_path,
             interval=max(1, 1000 // FPS),
+            gif_slowdown=GIF_SLOWDOWN,
             title=f"{label0} vs {label1}",
         )
 
