@@ -51,6 +51,7 @@ class Frame:
     rod_ctrl:   list[bool]           # controlled? per rod
     ups:        list[bool]           # up (flipped) state per rod
     event:      Optional[str] = None # 'hit', 'goal:0', 'goal:1', etc.
+    rod_swings: list                 = dc_field(default_factory=list)  # (active_start, window_end) or None per rod
 
 
 @dataclass
@@ -568,15 +569,20 @@ def _make_frame(
     event: Optional[str],
 ) -> Frame:
     return Frame(
-        tick     = tick,
-        time     = time,
-        ball_x   = ball.x,
-        ball_y   = ball.y,
-        ball_vx  = ball.vx,
-        ball_vy  = ball.vy,
-        rod_ys   = [r.y_offset for r in field.rods],
-        rod_xs   = [r.x_offset for r in field.rods],
-        rod_ctrl = [r.controlled for r in field.rods],
-        ups      = [r.up for r in field.rods],
-        event    = event,
+        tick       = tick,
+        time       = time,
+        ball_x     = ball.x,
+        ball_y     = ball.y,
+        ball_vx    = ball.vx,
+        ball_vy    = ball.vy,
+        rod_ys     = [r.y_offset for r in field.rods],
+        rod_xs     = [r.x_offset for r in field.rods],
+        rod_ctrl   = [r.controlled for r in field.rods],
+        ups        = [r.up for r in field.rods],
+        event      = event,
+        rod_swings = [
+            (r.pending_swing.active_start, r.pending_swing.window_end)
+            if r.pending_swing is not None else None
+            for r in field.rods
+        ],
     )

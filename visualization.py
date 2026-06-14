@@ -40,6 +40,10 @@ BALL_COLOR  = "#f5f542"
 # Purely cosmetic: slides the opaque foot toward the ball when contact is possible.
 FOOT_EASE_ALPHA = 0.35
 
+# Visual backswing magnitude as a fraction of the forward reach at contact.
+# Smaller than 1.0 so the backswing looks like a wind-up, not an equal recoil.
+SWING_ANIM_BACKSWING = 0.4
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -132,11 +136,12 @@ def _draw_rods_from_offsets(
 def _compute_foot_offsets(field: Field, frames: list[Frame]) -> list[list[float]]:
     """Eased per-frame foot x_offsets for the replay (cosmetic only).
 
-    For each frame and rod, the foot targets the ball's x (clamped to the rod's
-    reach) when the rod is controlled and the ball sits inside its reach box;
-    otherwise it targets the rod's actual rest offset. A forward exponential lerp
-    smooths the motion so the foot slides rather than snaps. This never touches
-    sim state — it only derives display positions from recorded frames.
+    Swing commits drive a two-phase animation timed to the actual sim windows:
+      backswing phase  (commit_time → active_start): foot pulls away from the ball
+      active phase     (active_start → window_end):  foot slides toward the ball
+
+    Outside a committed swing the foot targets the ball when in reach, otherwise
+    the rod's rest x_offset. A forward exponential lerp smooths all transitions.
 
     Returns foot_xs indexed [frame_idx][rod_idx].
     """
@@ -145,18 +150,33 @@ def _compute_foot_offsets(field: Field, frames: list[Frame]) -> list[list[float]
 
     for fr in frames:
         targets: list[float] = []
+        swings = fr.rod_swings if fr.rod_swings else [None] * len(field.rods)
+
         for i, rod in enumerate(field.rods):
             orig_y = rod.y_offset
             rod.y_offset = fr.rod_ys[i]
+
             in_reach = (
                 fr.rod_ctrl[i]
                 and rod.player_in_box(fr.ball_x, fr.ball_y, config.BALL_RADIUS) is not None
             )
-            if in_reach:
-                raw = fr.ball_x - rod._base_x
-                target = max(-rod.rod_x_reach, min(rod.rod_x_reach, raw))
+            fwd_raw  = fr.ball_x - rod._base_x
+            fwd      = max(-rod.rod_x_reach, min(rod.rod_x_reach, fwd_raw))
+
+            swing = swings[i]
+            if swing is not None:
+                active_start = swing[0]
+                if fr.time < active_start:
+                    # Backswing: foot retracts opposite to the shot direction
+                    target = -fwd * SWING_ANIM_BACKSWING
+                else:
+                    # Active window: foot leads toward the ball
+                    target = fwd if in_reach else fr.rod_xs[i]
+            elif in_reach:
+                target = fwd
             else:
                 target = fr.rod_xs[i]
+
             rod.y_offset = orig_y
             targets.append(target)
 
