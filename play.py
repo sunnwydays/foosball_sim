@@ -40,6 +40,12 @@ TEAM_1_SKILL = (0.6, 0.7)
 TEAM_0_ANTICIPATION = None
 TEAM_1_ANTICIPATION = None
 
+# Local overrides: copy above settings and change in play_local.py (gitignored)
+try:
+    from play_local import *
+except ImportError:
+    pass
+
 # ---------------------------------------------------------------------------
 
 import config

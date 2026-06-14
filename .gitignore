@@ -3,3 +3,4 @@ __pycache__/
 CLAUDE.md
 output/
 idea_log.md
+play_local.py
