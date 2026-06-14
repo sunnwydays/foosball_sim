@@ -34,7 +34,7 @@ TEAM_COLOR  = {0: "#4C9BE8", 1: "#E8724C"}   # blue / orange
 FIELD_GREEN = "#2d6a2d"
 LINE_WHITE  = "#ffffff"
 WALL_GRAY   = "#888888"
-BALL_COLOR  = "#f5f542"
+BALL_COLOR  = "#ffffff"
 
 # Per-frame lerp toward the target foot x in the replay (0..1, higher = snappier).
 # Purely cosmetic: slides the opaque foot toward the ball when contact is possible.
