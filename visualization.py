@@ -81,6 +81,7 @@ def _draw_rods_from_offsets(
     rod_ups: list[bool],
     show_reach: bool = False,
     foot_x_override: Optional[list[float]] = None,
+    rod_switching: Optional[list[bool]] = None,
 ) -> None:
     """Draw rods using explicit offset arrays (from a Frame).
 
@@ -125,9 +126,13 @@ def _draw_rods_from_offsets(
                 )
                 ax.add_patch(reach_rect)
 
-        # Controlled indicator
+        # Control indicator: solid triangle = held (switch complete);
+        # hollow triangle = a hand is assigned but still mid-switch.
         if rod_ctrl[i]:
             ax.plot(rod._base_x, field.width + 1, 'v', color=color, markersize=5, zorder=5)
+        elif rod_switching is not None and rod_switching[i]:
+            ax.plot(rod._base_x, field.width + 1, 'v', markersize=5, zorder=5,
+                    markerfacecolor='none', markeredgecolor=color, markeredgewidth=1.0)
 
         # Restore
         rod.y_offset, rod.x_offset = orig_y, orig_x
@@ -217,8 +222,10 @@ def draw_field(
     rod_ys = [r.y_offset for r in field.rods]
     rod_xs = [r.x_offset for r in field.rods]
     rod_ctrl = [r.controlled for r in field.rods]
+    rod_switching = [r.switch_timer > 0 for r in field.rods]
     rod_ups = [r.up for r in field.rods]
-    _draw_rods_from_offsets(ax, field, rod_ys, rod_xs, rod_ctrl, rod_ups, show_reach)
+    _draw_rods_from_offsets(ax, field, rod_ys, rod_xs, rod_ctrl, rod_ups, show_reach,
+                            rod_switching=rod_switching)
 
     if ball_state is not None:
         ball_circle = plt.Circle(
@@ -290,6 +297,7 @@ def replay_point(
         _draw_rods_from_offsets(
             ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, fr.ups, show_reach,
             foot_x_override=foot_xs[frame_idx],
+            rod_switching=getattr(fr, "rod_switching", None),
         )
 
         # Ball trail

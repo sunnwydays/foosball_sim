@@ -48,7 +48,8 @@ class Frame:
     ball_vy:    float
     rod_ys:     list[float]          # y_offset per rod
     rod_xs:     list[float]          # x_offset per rod
-    rod_ctrl:   list[bool]           # controlled? per rod
+    rod_ctrl:   list[bool]           # controlled? (switch complete) per rod
+    rod_switching: list[bool]        # hand assigned but still mid-switch per rod
     ups:        list[bool]           # up (flipped) state per rod
     event:      Optional[str] = None # 'hit', 'goal:0', 'goal:1', etc.
     rod_swings: list                 = dc_field(default_factory=list)  # (active_start, window_end) or None per rod
@@ -438,7 +439,8 @@ def simulate_point(
                 goal_team = 1 - winner  # team whose goal the ball entered
                 goal_hits.append((*last_hit_pos, goal_team, is_self_goal))
             if record:
-                frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}'))
+                _active = team_states[0].active_rods | team_states[1].active_rods
+                frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}', _active))
             return PointResult(
                 winner       = winner,
                 ticks        = tick + 1,
@@ -545,7 +547,8 @@ def simulate_point(
         # 6. Record frame
         # --------------------------------------------------------------
         if record:
-            frames.append(_make_frame(tick, game_time, ball, field, event))
+            _active = team_states[0].active_rods | team_states[1].active_rods
+            frames.append(_make_frame(tick, game_time, ball, field, event, _active))
 
     # --- Time limit reached ---
     return PointResult(
@@ -564,6 +567,7 @@ def _make_frame(
     ball: BallState,
     field: Field,
     event: Optional[str],
+    active_rod_idxs: set[int] = frozenset(),
 ) -> Frame:
     return Frame(
         tick       = tick,
@@ -575,6 +579,8 @@ def _make_frame(
         rod_ys     = [r.y_offset for r in field.rods],
         rod_xs     = [r.x_offset for r in field.rods],
         rod_ctrl   = [r.controlled for r in field.rods],
+        rod_switching = [(i in active_rod_idxs) and not r.controlled
+                         for i, r in enumerate(field.rods)],
         ups        = [r.up for r in field.rods],
         event      = event,
         rod_swings = [
