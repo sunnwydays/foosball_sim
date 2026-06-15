@@ -6,7 +6,6 @@ Tweak the settings below to change what you see.
 Pass a seed as an argument to override SEED for this run.
 """
 
-import json
 import os
 import sys
 from datetime import datetime
@@ -109,27 +108,37 @@ def _print_action_log(log) -> None:
 
 
 def _save_action_log(log, label0: str, label1: str) -> None:
+    import io
     os.makedirs("output", exist_ok=True)
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = f"output/action_log_{ts}.json"
-    data = {
-        "team_0": label0,
-        "team_1": label1,
-        "events": [
-            {
-                "time":         e.game_time,
-                "team":         e.team,
-                "rod":          e.rod_label,
-                "action":       e.action,
-                "ball_pos":     list(e.ball_pos),
-                "intended_vel": list(e.intended_vel) if e.intended_vel else None,
-                "actual_vel":   list(e.actual_vel)   if e.actual_vel   else None,
-            }
-            for e in log
-        ],
-    }
+    path = f"output/action_log_{ts}.txt"
+    buf  = io.StringIO()
+    buf.write(f"team_0: {label0}  team_1: {label1}\n")
+    counts: dict[str, int] = {}
+    for e in log:
+        counts[e.action] = counts.get(e.action, 0) + 1
+    summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
+    buf.write(f"\n=== Action Log ({len(log)} events - {summary}) ===\n")
+    for e in log:
+        if _is_physics_action(e.action):
+            before = f"(vx={e.intended_vel[0]:+.2f},vy={e.intended_vel[1]:+.2f})"
+            after  = f"(vx={e.actual_vel[0]:+.2f},vy={e.actual_vel[1]:+.2f})"
+            buf.write(f"  t={e.game_time:5.2f}s  {e.action:<9}  "
+                      f"ball=({e.ball_pos[0]:.1f},{e.ball_pos[1]:.1f})  "
+                      f"{before} -> {after}  reach=[{e.rod_label}]\n")
+        else:
+            if e.action == "COMMIT":
+                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+            elif e.action == "HIT":
+                vel = f"  actual=(vx={e.actual_vel[0]:+.2f}, vy={e.actual_vel[1]:+.2f})"
+            elif e.action == "WHIFF":
+                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+            else:
+                vel = ""
+            buf.write(f"  t={e.game_time:5.2f}s  {e.rod_label:<10}  {e.action:<7}  "
+                      f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}\n")
     with open(path, "w") as f:
-        json.dump(data, f, indent=2)
+        f.write(buf.getvalue())
     print(f"Saved action log to {path}")
 
 
