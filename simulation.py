@@ -283,28 +283,34 @@ def simulate_point(
             acquired   = desired_hands - prev_hands
 
             # Released rods stop immediately; discard any armed swing to prevent
-            # a ghost hit firing after the player has let go.
+            # a ghost hit firing after the player has let go. Clear any pending
+            # switch so switch_timer cleanly means "a hand is mid-switch here".
             for rod_idx in released:
                 rod = field.rods[rod_idx]
                 rod.controlled = False
                 rod.vy = 0.0
                 rod.pending_swing = None
+                rod.switch_timer = 0.0
 
-            # Acquired rods get switch delay
+            # Acquired rods get switch delay; uncontrolled until delay expires
+            # so step_ball handles them as passive (uncontrolled) rods.
             for rod_idx in acquired:
                 rod = field.rods[rod_idx]
-                rod.controlled = True
+                rod.controlled = False
                 rod.switch_timer = config.SWITCH_DELAY
 
-            # Kept rods stay controlled
+            # Kept rods: restore control only once switch delay has expired
             for rod_idx in (desired_hands & prev_hands):
-                field.rods[rod_idx].controlled = True
+                rod = field.rods[rod_idx]
+                if rod.switch_timer <= 0:
+                    rod.controlled = True
 
             ts.active_rods = desired_hands
 
             # Choose targets (only if not in reaction lockout)
             if not ts.reacting:
-                controlled = [(i, field.rods[i]) for i in desired_hands]
+                controlled = [(i, field.rods[i]) for i in desired_hands
+                             if field.rods[i].switch_timer <= 0]
                 targets = strat.choose_pos(controlled, ball, field)
                 for rod_idx, (ty, tx, up) in targets.items():
                     rod = field.rods[rod_idx]
@@ -529,15 +535,6 @@ def simulate_point(
                 last_hit = (rod_idx, player_idx)
                 break
 
-            elif rod.controlled and rod.switch_timer > 0:
-                # Ball arrived before switch delay expired -> absorbed bounce to
-                # prevent hard bounce into own goal
-                if not _resolve_rigid_contact(ball, rod, player_idx,
-                                              _x_pre, _y_pre, reflect=False):
-                    continue
-                rod.pending_swing = None
-                last_hit = (rod_idx, player_idx)
-                break
 
         # Reset last_hit if ball stopped
         if ball.stopped:
