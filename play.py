@@ -81,6 +81,27 @@ _PHYSICS_ACTIONS = {"DEFLECT", "STOP"}
 def _is_physics_action(action: str) -> bool:
     return action in _PHYSICS_ACTIONS or action.startswith("WALL_")
 
+def _format_event(e) -> str:
+    if e.rod_label.startswith("GOAL"):
+        return f"  t={e.game_time:5.2f}s  *** {e.action} ***"
+    if _is_physics_action(e.action):
+        before = f"(vx={e.intended_vel[0]:+.2f},vy={e.intended_vel[1]:+.2f})"
+        after  = f"(vx={e.actual_vel[0]:+.2f},vy={e.actual_vel[1]:+.2f})"
+        return (f"  t={e.game_time:5.2f}s  {e.action:<9}  "
+                f"ball=({e.ball_pos[0]:.1f},{e.ball_pos[1]:.1f})  "
+                f"{before} -> {after}  reach=[{e.rod_label}]")
+    if e.action == "COMMIT":
+        vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+    elif e.action == "HIT":
+        vel = f"  actual=(vx={e.actual_vel[0]:+.2f}, vy={e.actual_vel[1]:+.2f})"
+    elif e.action == "WHIFF":
+        vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
+    else:
+        vel = ""
+    return (f"  t={e.game_time:5.2f}s  {e.rod_label:<10}  {e.action:<7}  "
+            f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}")
+
+
 def _print_action_log(log) -> None:
     counts: dict[str, int] = {}
     for e in log:
@@ -88,55 +109,24 @@ def _print_action_log(log) -> None:
     summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
     print(f"\n=== Action Log ({len(log)} events - {summary}) ===")
     for e in log:
-        if _is_physics_action(e.action):
-            before = f"(vx={e.intended_vel[0]:+.2f},vy={e.intended_vel[1]:+.2f})"
-            after  = f"(vx={e.actual_vel[0]:+.2f},vy={e.actual_vel[1]:+.2f})"
-            print(f"  t={e.game_time:5.2f}s  {e.action:<9}  "
-                  f"ball=({e.ball_pos[0]:.1f},{e.ball_pos[1]:.1f})  "
-                  f"{before} -> {after}  reach=[{e.rod_label}]")
-        else:
-            if e.action == "COMMIT":
-                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
-            elif e.action == "HIT":
-                vel = f"  actual=(vx={e.actual_vel[0]:+.2f}, vy={e.actual_vel[1]:+.2f})"
-            elif e.action == "WHIFF":
-                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
-            else:
-                vel = ""
-            print(f"  t={e.game_time:5.2f}s  {e.rod_label:<10}  {e.action:<7}  "
-                  f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}")
+        print(_format_event(e))
 
 
-def _save_action_log(log, label0: str, label1: str) -> None:
+def _save_action_log(log, label0: str, label1: str, result_summary: str) -> None:
     import io
     os.makedirs("output", exist_ok=True)
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = f"output/action_log_{ts}.txt"
     buf  = io.StringIO()
     buf.write(f"team_0: {label0}  team_1: {label1}\n")
+    buf.write(f"{result_summary}\n")
     counts: dict[str, int] = {}
     for e in log:
         counts[e.action] = counts.get(e.action, 0) + 1
     summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
     buf.write(f"\n=== Action Log ({len(log)} events - {summary}) ===\n")
     for e in log:
-        if _is_physics_action(e.action):
-            before = f"(vx={e.intended_vel[0]:+.2f},vy={e.intended_vel[1]:+.2f})"
-            after  = f"(vx={e.actual_vel[0]:+.2f},vy={e.actual_vel[1]:+.2f})"
-            buf.write(f"  t={e.game_time:5.2f}s  {e.action:<9}  "
-                      f"ball=({e.ball_pos[0]:.1f},{e.ball_pos[1]:.1f})  "
-                      f"{before} -> {after}  reach=[{e.rod_label}]\n")
-        else:
-            if e.action == "COMMIT":
-                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
-            elif e.action == "HIT":
-                vel = f"  actual=(vx={e.actual_vel[0]:+.2f}, vy={e.actual_vel[1]:+.2f})"
-            elif e.action == "WHIFF":
-                vel = f"  intent=(vx={e.intended_vel[0]:+.2f}, vy={e.intended_vel[1]:+.2f})"
-            else:
-                vel = ""
-            buf.write(f"  t={e.game_time:5.2f}s  {e.rod_label:<10}  {e.action:<7}  "
-                      f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}\n")
+        buf.write(_format_event(e) + "\n")
     with open(path, "w") as f:
         f.write(buf.getvalue())
     print(f"Saved action log to {path}")
@@ -188,7 +178,8 @@ def main():
 
     winner_str = f"Team {result.winner}" if result.winner is not None else "Draw"
     hits = sum(1 for f in result.frames if f.event == "hit")
-    print(f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits")
+    result_summary = f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits"
+    print(result_summary)
 
     # Replay
     save_path = "output/replay.gif" if ANIMATE else None
@@ -197,7 +188,7 @@ def main():
 
     if SAVE_ACTION_LOG and result.action_log:
         _print_action_log(result.action_log)
-        _save_action_log(result.action_log, label0, label1)
+        _save_action_log(result.action_log, label0, label1, result_summary)
 
     # Heatmap (fast — open first)
     if TRACK_STATS and pos_grid is not None:

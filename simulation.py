@@ -442,6 +442,18 @@ def simulate_point(
             if record:
                 _active = team_states[0].active_rods | team_states[1].active_rods
                 frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}', _active))
+            if collect_action_log:
+                _scored_on = 1 - winner
+                _suffix = " (own goal)" if is_self_goal else ""
+                _action_log.append(ActionLogEntry(
+                    game_time    = game_time + dt,
+                    team         = winner,
+                    rod_label    = f"GOAL{_suffix}",
+                    action       = f"Team {winner} scores on Team {_scored_on}",
+                    ball_pos     = (ball.x, ball.y),
+                    intended_vel = None,
+                    actual_vel   = None,
+                ))
             return PointResult(
                 winner       = winner,
                 ticks        = tick + 1,
