@@ -449,7 +449,7 @@ def simulate_point(
                     game_time    = game_time + dt,
                     team         = winner,
                     rod_label    = f"GOAL{_suffix}",
-                    action       = f"Team {winner} scores on Team {_scored_on}",
+                    action       = f"T{winner} scores on T{_scored_on}",
                     ball_pos     = (ball.x, ball.y),
                     intended_vel = None,
                     actual_vel   = None,

@@ -102,33 +102,27 @@ def _format_event(e) -> str:
             f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}")
 
 
-def _print_action_log(log) -> None:
+def _dump_action_log(log, label0: str, label1: str, seed: int) -> None:
+    os.makedirs("output", exist_ok=True)
     counts: dict[str, int] = {}
     for e in log:
-        counts[e.action] = counts.get(e.action, 0) + 1
+        if not e.rod_label.startswith("GOAL"):
+            counts[e.action] = counts.get(e.action, 0) + 1
     summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
-    print(f"\n=== Action Log ({len(log)} events - {summary}) ===")
-    for e in log:
-        print(_format_event(e))
 
+    lines = [
+        f"team_0: {label0}  team_1: {label1}  seed: {seed}",
+        f"\n=== Action Log ({len(log)} events - {summary}) ===",
+        *(_format_event(e) for e in log),
+    ]
+    text = "\n".join(lines)
 
-def _save_action_log(log, label0: str, label1: str, result_summary: str) -> None:
-    import io
-    os.makedirs("output", exist_ok=True)
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")
     path = f"output/action_log_{ts}.txt"
-    buf  = io.StringIO()
-    buf.write(f"team_0: {label0}  team_1: {label1}\n")
-    buf.write(f"{result_summary}\n")
-    counts: dict[str, int] = {}
-    for e in log:
-        counts[e.action] = counts.get(e.action, 0) + 1
-    summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
-    buf.write(f"\n=== Action Log ({len(log)} events - {summary}) ===\n")
-    for e in log:
-        buf.write(_format_event(e) + "\n")
     with open(path, "w") as f:
-        f.write(buf.getvalue())
+        f.write(text + "\n")
+
+    print(text)
     print(f"Saved action log to {path}")
 
 
@@ -136,6 +130,8 @@ def main():
     seed = SEED
     if len(sys.argv) > 1:
         seed = None if sys.argv[1].lower() in ("none", "random") else int(sys.argv[1])
+    if seed is None:
+        seed = int(np.random.randint(0, 2**31))
 
     field = Field()
 
@@ -178,8 +174,7 @@ def main():
 
     winner_str = f"Team {result.winner}" if result.winner is not None else "Draw"
     hits = sum(1 for f in result.frames if f.event == "hit")
-    result_summary = f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits"
-    print(result_summary)
+    print(f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits")
 
     # Replay
     save_path = "output/replay.gif" if ANIMATE else None
@@ -187,8 +182,7 @@ def main():
     label1 = os.path.basename(TEAM_1).replace(".json", "") if TEAM_1.endswith(".json") else TEAM_1
 
     if SAVE_ACTION_LOG and result.action_log:
-        _print_action_log(result.action_log)
-        _save_action_log(result.action_log, label0, label1, result_summary)
+        _dump_action_log(result.action_log, label0, label1, seed)
 
     # Heatmap (fast — open first)
     if TRACK_STATS and pos_grid is not None:
