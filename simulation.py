@@ -162,7 +162,6 @@ def simulate_point(
     stall_hits:         Optional[list] = None,
     dead_hits:          Optional[list] = None,
     collect_action_log: bool = False,
-    extended_log:       bool = False,
 ) -> PointResult:
     """
     Simulate one foosball point with time-stepped physics.
@@ -378,19 +377,21 @@ def simulate_point(
                                 ball_radius=config.BALL_RADIUS,
                                 pos_grid=pos_grid)
 
-        if extended_log:
-            _dvx = ball.vx - _vx_pre
-            _dvy = ball.vy - _vy_pre
-            _sign_x = (_vx_pre * ball.vx < 0)
-            _sign_y = (_vy_pre * ball.vy < 0)
-            _delta  = abs(_dvx) + abs(_dvy)
+        if collect_action_log:
+            # Wall bounces and figurine contact are reported by the physics, so
+            # the cause is read from real events rather than inferred from the
+            # velocity delta (which is dominated by per-tick friction).
+            _walls = [name for flag, name in (
+                (ball.bounce_left,   'L'),
+                (ball.bounce_right,  'R'),
+                (ball.bounce_top,    'T'),
+                (ball.bounce_bottom, 'B'),
+            ) if flag]
             if abs(ball.vx) < 0.001 and abs(ball.vy) < 0.001 and (abs(_vx_pre) > 0.01 or abs(_vy_pre) > 0.01):
                 _cause: Optional[str] = 'STOP'
-            elif _sign_x:
-                _cause = 'BOUNCE_X'
-            elif _sign_y:
-                _cause = 'BOUNCE_Y'
-            elif _delta > 0.15:
+            elif _walls:
+                _cause = 'WALL_' + '_'.join(_walls)
+            elif ball.contacted_player:
                 _cause = 'DEFLECT'
             else:
                 _cause = None

@@ -69,6 +69,11 @@ def step_ball(
     'goal:1'  — ball entered a goal, team 1 scored
     'stopped' — ball speed dropped below STOP_THRESHOLD
     """
+    # Reset per-tick contact/bounce flags; inner step(s) set them on real events
+    ball.contacted_player = False
+    ball.bounce_left = ball.bounce_right = False
+    ball.bounce_top = ball.bounce_bottom = False
+
     # Substep if the ball would move too far in one tick
     max_step = config.PLAYER_THICKNESS / 2
     dist = ball.speed * dt
@@ -111,9 +116,11 @@ def _step_ball_inner(
     if ball.y <= r:
         ball.y = 2 * r - ball.y         # reflect off bottom
         ball.vy = abs(ball.vy)
+        ball.bounce_bottom = True
     elif ball.y >= field.width - r:
         ball.y = 2 * (field.width - r) - ball.y
         ball.vy = -abs(ball.vy)
+        ball.bounce_top = True
 
     # Clamp in case of floating-point overshoot
     ball.y = max(r, min(field.width - r, ball.y))
@@ -131,6 +138,7 @@ def _step_ball_inner(
             # Bounce off end wall (outside goal)
             ball.x = 2 * r - ball.x
             ball.vx = abs(ball.vx)
+            ball.bounce_left = True
 
     elif ball.x >= field.depth - r:
         if field.right_goal.contains(ball.y):
@@ -139,6 +147,7 @@ def _step_ball_inner(
         else:
             ball.x = 2 * (field.depth - r) - ball.x
             ball.vx = -abs(ball.vx)
+            ball.bounce_right = True
 
     # Clamp x (allow ball into goal area but not beyond goal depth)
     ball.x = max(-gd + r, min(field.depth + gd - r, ball.x))
@@ -154,6 +163,9 @@ def _step_ball_inner(
             dy = ball.y - py
             if abs(dx) >= ht or abs(dy) >= hw:
                 continue
+
+            # A figurine is overlapping the ball this tick — real contact
+            ball.contacted_player = True
 
             # Which face did the ball enter from?
             pen_x = ht - abs(dx)

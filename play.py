@@ -28,7 +28,6 @@ TEAM_0 = "HardOffense"          # strategy name or path to a genome .json
 TEAM_1 = "TiltAndGap"           # e.g. "output/agents/rank0.json"
 
 SAVE_ACTION_LOG = True   # print action table to terminal + save JSON
-EXTENDED_LOG    = False  # also log every ball direction change
 
 # Skill overrides (e.g. (0.9, 0.9) for (accuracy, power_consistency), None for default)
 # Ignored for genome-based agents (skill genes are in the genome itself)
@@ -78,7 +77,10 @@ def build_strategy(spec: str):
     return STRATEGIES[spec]()
 
 
-_PHYSICS_ACTIONS = {"BOUNCE_X", "BOUNCE_Y", "DEFLECT", "STOP"}
+_PHYSICS_ACTIONS = {"DEFLECT", "STOP"}
+
+def _is_physics_action(action: str) -> bool:
+    return action in _PHYSICS_ACTIONS or action.startswith("WALL_")
 
 def _print_action_log(log) -> None:
     counts: dict[str, int] = {}
@@ -87,7 +89,7 @@ def _print_action_log(log) -> None:
     summary = "  ".join(f"{k}:{v}" for k, v in counts.items() if v)
     print(f"\n=== Action Log ({len(log)} events - {summary}) ===")
     for e in log:
-        if e.action in _PHYSICS_ACTIONS:
+        if _is_physics_action(e.action):
             before = f"(vx={e.intended_vel[0]:+.2f},vy={e.intended_vel[1]:+.2f})"
             after  = f"(vx={e.actual_vel[0]:+.2f},vy={e.actual_vel[1]:+.2f})"
             print(f"  t={e.game_time:5.2f}s  {e.action:<9}  "
@@ -173,7 +175,6 @@ def main():
         pos_grid=pos_grid,
         goal_hits=goal_hits,
         collect_action_log=SAVE_ACTION_LOG,
-        extended_log=EXTENDED_LOG,
     )
 
     winner_str = f"Team {result.winner}" if result.winner is not None else "Draw"

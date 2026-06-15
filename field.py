@@ -287,6 +287,20 @@ class BallState:
     vx: float = 0.0
     vy: float = 0.0
 
+    # transient — set True by step_ball() during a tick in which a passive
+    # figurine actually touched the ball; reset at the start of each tick.
+    # Used by the extended action log to distinguish real deflections from
+    # the per-tick velocity change caused by friction.
+    contacted_player: bool = False
+
+    # transient — which walls the ball bounced off this tick (reset each tick).
+    # Set only by the wall-bounce code in step_ball(), so they never fire for a
+    # figurine contact. left/right are the end (goal) walls; top/bottom the rails.
+    bounce_left:   bool = False
+    bounce_right:  bool = False
+    bounce_top:    bool = False
+    bounce_bottom: bool = False
+
     @property
     def speed(self) -> float:
         return math.sqrt(self.vx ** 2 + self.vy ** 2)
