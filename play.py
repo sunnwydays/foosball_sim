@@ -131,6 +131,51 @@ def _dump_action_log(log, label0: str, label1: str, seed: int) -> None:
     print(f"Saved action log to {path}")
 
 
+def _team_label(spec: str) -> str:
+    return os.path.basename(spec).replace(".json", "") if spec.endswith(".json") else spec
+
+
+def run_point(seed, team0_spec: str, team1_spec: str, skill0, skill1,
+              anticipation0=TEAM_0_ANTICIPATION, anticipation1=TEAM_1_ANTICIPATION,
+              kickoff=KICKOFF, pos_grid=None, goal_hits=None):
+    """Simulate one point; returns (field, result, seed_used).
+
+    skill0/skill1 are (accuracy, power_consistency) tuples or None (Rod default).
+    anticipation0/anticipation1 are floats or None (config.DEFAULT_ANTICIPATION).
+    These overrides are ignored for genome agents (they re-apply their own genes).
+    """
+    if seed is None:
+        seed = int(np.random.randint(0, 2**31))
+    field = Field()
+    if skill0:
+        for rod in field.rods:
+            if rod.team == 0:
+                rod.accuracy, rod.power_consistency = skill0
+    if skill1:
+        for rod in field.rods:
+            if rod.team == 1:
+                rod.accuracy, rod.power_consistency = skill1
+    if anticipation0 is not None:
+        for rod in field.rods:
+            if rod.team == 0:
+                rod.anticipation = anticipation0
+    if anticipation1 is not None:
+        for rod in field.rods:
+            if rod.team == 1:
+                rod.anticipation = anticipation1
+    strats = {0: build_strategy(team0_spec), 1: build_strategy(team1_spec)}
+    result = simulate_point(
+        field, strats,
+        kickoff_team=kickoff,
+        record=True,
+        seed=seed,
+        pos_grid=pos_grid,
+        goal_hits=goal_hits,
+        collect_action_log=SAVE_ACTION_LOG,
+    )
+    return field, result, seed
+
+
 def main():
     seed = SEED
     if len(sys.argv) > 1:
@@ -138,58 +183,30 @@ def main():
     if seed is None:
         seed = int(np.random.randint(0, 2**31))
 
-    field = Field()
+    pos_grid = goal_hits = None
+    if SAVE_HEATMAP:
+        _tmp = Field()
+        pos_grid  = np.zeros((int(_tmp.depth / config.STATS_GRID_RES),
+                               int(_tmp.width  / config.STATS_GRID_RES)))
+        goal_hits = []
 
-    # Apply skill overrides
-    if TEAM_0_SKILL:
-        for rod in field.rods:
-            if rod.team == 0:
-                rod.accuracy, rod.power_consistency = TEAM_0_SKILL
-    if TEAM_1_SKILL:
-        for rod in field.rods:
-            if rod.team == 1:
-                rod.accuracy, rod.power_consistency = TEAM_1_SKILL
-    if TEAM_0_ANTICIPATION is not None:
-        for rod in field.rods:
-            if rod.team == 0:
-                rod.anticipation = TEAM_0_ANTICIPATION
-    if TEAM_1_ANTICIPATION is not None:
-        for rod in field.rods:
-            if rod.team == 1:
-                rod.anticipation = TEAM_1_ANTICIPATION
-
-    strats = {
-        0: build_strategy(TEAM_0),
-        1: build_strategy(TEAM_1),
-    }
-
-    pos_grid  = np.zeros((int(field.depth / config.STATS_GRID_RES),
-                           int(field.width  / config.STATS_GRID_RES))) if SAVE_HEATMAP else None
-    goal_hits: list = [] if SAVE_HEATMAP else None
-
-    result = simulate_point(
-        field, strats,
-        kickoff_team=KICKOFF,
-        record=True,
-        seed=seed,
-        pos_grid=pos_grid,
-        goal_hits=goal_hits,
-        collect_action_log=SAVE_ACTION_LOG,
+    field, result, seed = run_point(
+        seed, TEAM_0, TEAM_1, TEAM_0_SKILL, TEAM_1_SKILL,
+        pos_grid=pos_grid, goal_hits=goal_hits,
     )
+
+    label0 = _team_label(TEAM_0)
+    label1 = _team_label(TEAM_1)
 
     winner_str = f"Team {result.winner}" if result.winner is not None else "Draw"
     hits = sum(1 for f in result.frames if f.event == "hit")
     print(f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits")
 
-    # Replay. The interactive viewer supersedes the GIF render when both are on.
     save_path = "output/replay.gif" if (ANIMATE and not INTERACTIVE) else None
-    label0 = os.path.basename(TEAM_0).replace(".json", "") if TEAM_0.endswith(".json") else TEAM_0
-    label1 = os.path.basename(TEAM_1).replace(".json", "") if TEAM_1.endswith(".json") else TEAM_1
 
     if SAVE_ACTION_LOG and result.action_log:
         _dump_action_log(result.action_log, label0, label1, seed)
 
-    # Heatmap (fast — open first)
     if SAVE_HEATMAP and pos_grid is not None:
         if pos_grid.max() > 0:
             pos_grid /= pos_grid.max()
@@ -202,7 +219,7 @@ def main():
         plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=100)
         print(f"Saved heatmap to {heatmap_path}")
         os.startfile(os.path.abspath(heatmap_path))
-        plt.close(fig)   # keep it out of the interactive viewer's plt.show()
+        plt.close(fig)
 
     if ANIMATE and not INTERACTIVE:
         anim = replay_point(
@@ -213,16 +230,46 @@ def main():
             gif_slowdown=GIF_SLOWDOWN,
             title=f"{label0} vs {label1}",
         )
-
         if save_path:
             os.startfile(os.path.abspath(save_path))
 
     if INTERACTIVE:
+        def _rerun_fn(s):
+            new_field, new_result, actual_seed = run_point(
+                s["seed"], s["team0"], s["team1"], s["skill0"], s["skill1"],
+                anticipation0=s["anticipation0"], anticipation1=s["anticipation1"],
+                kickoff=s["kickoff"],
+            )
+            lbl0 = _team_label(s["team0"])
+            lbl1 = _team_label(s["team1"])
+            w = f"Team {new_result.winner}" if new_result.winner is not None else "Draw"
+            h = sum(1 for f in new_result.frames if f.event == "hit")
+            print(f"Re-run  seed={actual_seed}: {w}  |  "
+                  f"{new_result.ticks} ticks  |  {new_result.time:.2f}s  |  {h} hits")
+            if SAVE_ACTION_LOG and new_result.action_log:
+                _dump_action_log(new_result.action_log, lbl0, lbl1, actual_seed)
+            return new_field, new_result.frames, f"{lbl0} vs {lbl1}  (seed={actual_seed})", actual_seed
+
+        rerun_init = {
+            "seed":   str(seed),
+            "team0":  TEAM_0,
+            "team1":  TEAM_1,
+            "skill0": TEAM_0_SKILL,
+            "skill1": TEAM_1_SKILL,
+            "anticipation0": TEAM_0_ANTICIPATION,
+            "anticipation1": TEAM_1_ANTICIPATION,
+            "kickoff": KICKOFF,
+            "skill_default": 0.5,
+            "anticipation_default": config.DEFAULT_ANTICIPATION,
+        }
+
         interactive_replay(
             field, result.frames,
             show_reach=SHOW_REACH,
             fps=FPS,
-            title=f"{label0} vs {label1}",
+            title=f"{label0} vs {label1}  (seed={seed})",
+            rerun_fn=_rerun_fn,
+            rerun_init=rerun_init,
         )
 
 

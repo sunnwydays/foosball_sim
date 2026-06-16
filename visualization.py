@@ -391,6 +391,8 @@ def interactive_replay(
     title:         str   = "Foosball Replay",
     trail_length:  int   = 20,
     fig_facecolor: str   = "#1a1a1a",
+    rerun_fn                   = None,
+    rerun_init: Optional[dict] = None,
 ) -> None:
     """Open a scrubbable viewer for a recorded point (like a video player).
 
@@ -407,10 +409,17 @@ def interactive_replay(
     home / end   jump to first / last frame
     Plus on-screen buttons and a draggable frame slider.
 
+    When `rerun_fn` is provided a settings panel appears below the slider with
+    editable seed and strategy fields, skill / anticipation sliders, a kickoff
+    toggle, reset buttons, and a Re-run button. `rerun_fn(settings)` receives a
+    dict with keys seed, team0, team1, skill0, skill1, anticipation0,
+    anticipation1, kickoff and must return
+    `(new_field, new_frames, new_title, seed_used)`.
+
     Requires an interactive matplotlib backend (i.e. do not force "Agg").
     Blocks on `plt.show()` until the window is closed.
     """
-    from matplotlib.widgets import Slider, Button
+    from matplotlib.widgets import Slider, Button, TextBox
 
     n = len(frames)
     if n == 0:
@@ -420,19 +429,43 @@ def interactive_replay(
     ball_ys = [f.ball_y for f in frames]
     foot_xs = _compute_foot_offsets(field, frames)
 
-    fig = plt.figure(figsize=(10, 7))
-    fig.patch.set_facecolor(fig_facecolor)
-    ax = fig.add_axes([0.07, 0.26, 0.86, 0.68])
+    has_settings = rerun_fn is not None
+    init = rerun_init or {}
 
-    state = {"idx": 0, "playing": False}
+    if has_settings:
+        fig = plt.figure(figsize=(11, 9.6))
+        ax = fig.add_axes([0.05, 0.575, 0.90, 0.40])
+    else:
+        fig = plt.figure(figsize=(10, 7))
+        ax = fig.add_axes([0.07, 0.26, 0.86, 0.68])
+    fig.patch.set_facecolor(fig_facecolor)
+
+    state = {
+        "idx":    0,
+        "playing": False,
+        "field":  field,
+        "frames": frames,
+        "ball_xs": ball_xs,
+        "ball_ys": ball_ys,
+        "foot_xs": foot_xs,
+        "n":      n,
+        "title":  title,
+        "kickoff": int(init.get("kickoff", 0) or 0),
+    }
 
     def render(idx: int) -> None:
-        _render_frame(ax, field, frames, ball_xs, ball_ys, foot_xs,
-                      idx, show_reach, trail_length, title)
+        _render_frame(
+            ax, state["field"], state["frames"],
+            state["ball_xs"], state["ball_ys"], state["foot_xs"],
+            idx, show_reach, trail_length, state["title"],
+        )
         fig.canvas.draw_idle()
 
     # --- Frame slider --------------------------------------------------------
-    ax_slider = fig.add_axes([0.12, 0.15, 0.76, 0.03], facecolor="#333333")
+    if has_settings:
+        ax_slider = fig.add_axes([0.12, 0.53, 0.74, 0.018], facecolor="#333333")
+    else:
+        ax_slider = fig.add_axes([0.12, 0.15, 0.76, 0.03], facecolor="#333333")
     slider = Slider(ax_slider, "frame", 0, n - 1, valinit=0,
                     valstep=1, color="#4C9BE8")
     slider.label.set_color("white")
@@ -444,15 +477,14 @@ def interactive_replay(
         fig.canvas.draw_idle()
 
     def goto(idx: int) -> None:
-        idx = max(0, min(n - 1, idx))
+        idx = max(0, min(state["n"] - 1, idx))
         state["idx"] = idx
-        slider.eventson = False        # move the handle without re-firing on_changed
+        slider.eventson = False
         slider.set_val(idx)
         slider.eventson = True
         render(idx)
 
     def on_slider(val: float) -> None:
-        # Fires only on user drags (programmatic set_val runs with eventson off).
         _pause()
         state["idx"] = int(val)
         render(state["idx"])
@@ -465,7 +497,7 @@ def interactive_replay(
     def _tick() -> None:
         if not state["playing"]:
             return
-        if state["idx"] >= n - 1:
+        if state["idx"] >= state["n"] - 1:
             _pause()
         else:
             goto(state["idx"] + 1)
@@ -474,7 +506,7 @@ def interactive_replay(
 
     # --- Buttons -------------------------------------------------------------
     def _toggle(_event=None) -> None:
-        if state["idx"] >= n - 1:       # restart from the top if parked at the end
+        if state["idx"] >= state["n"] - 1:
             goto(0)
         state["playing"] = not state["playing"]
         btn_play.label.set_text("pause" if state["playing"] else "play")
@@ -485,17 +517,159 @@ def interactive_replay(
         b.label.set_color("white")
         return b
 
-    btn_back_s = _make_btn([0.20, 0.05, 0.10, 0.05], "<< 1s")
-    btn_back_t = _make_btn([0.31, 0.05, 0.10, 0.05], "< tick")
-    btn_play   = _make_btn([0.42, 0.05, 0.16, 0.05], "play")
-    btn_fwd_t  = _make_btn([0.59, 0.05, 0.10, 0.05], "tick >")
-    btn_fwd_s  = _make_btn([0.70, 0.05, 0.10, 0.05], "1s >>")
+    if has_settings:
+        btn_back_s = _make_btn([0.18, 0.075, 0.10, 0.045], "<< 1s")
+        btn_back_t = _make_btn([0.29, 0.075, 0.10, 0.045], "< tick")
+        btn_play   = _make_btn([0.40, 0.075, 0.16, 0.045], "play")
+        btn_fwd_t  = _make_btn([0.57, 0.075, 0.10, 0.045], "tick >")
+        btn_fwd_s  = _make_btn([0.68, 0.075, 0.10, 0.045], "1s >>")
+    else:
+        btn_back_s = _make_btn([0.20, 0.05, 0.10, 0.05], "<< 1s")
+        btn_back_t = _make_btn([0.31, 0.05, 0.10, 0.05], "< tick")
+        btn_play   = _make_btn([0.42, 0.05, 0.16, 0.05], "play")
+        btn_fwd_t  = _make_btn([0.59, 0.05, 0.10, 0.05], "tick >")
+        btn_fwd_s  = _make_btn([0.70, 0.05, 0.10, 0.05], "1s >>")
 
     btn_back_s.on_clicked(lambda e: (_pause(), goto(state["idx"] - fps)))
     btn_back_t.on_clicked(lambda e: (_pause(), goto(state["idx"] - 1)))
     btn_play.on_clicked(_toggle)
     btn_fwd_t.on_clicked(lambda e: (_pause(), goto(state["idx"] + 1)))
     btn_fwd_s.on_clicked(lambda e: (_pause(), goto(state["idx"] + fps)))
+
+    # --- Settings panel ------------------------------------------------------
+    if has_settings:
+        skill_def = float(init.get("skill_default", 0.5))
+        ant_def   = float(init.get("anticipation_default", config.DEFAULT_ANTICIPATION))
+
+        def _make_tb(rect, label, initial):
+            tb_ax = fig.add_axes(rect, facecolor="#333333")
+            tb = TextBox(tb_ax, label, initial=initial,
+                         color="#333333", hovercolor="#555555")
+            tb.label.set_color("white")
+            tb.text_disp.set_color("white")
+            return tb
+
+        def _make_slider(rect, label, initial, color):
+            sl_ax = fig.add_axes(rect, facecolor="#333333")
+            sl = Slider(sl_ax, label, 0.0, 1.0, valinit=initial,
+                        valstep=0.01, color=color)
+            sl.label.set_color("white")
+            sl.label.set_fontsize(8)
+            sl.valtext.set_color("white")
+            sl.valtext.set_fontsize(8)
+            return sl
+
+        # Slider inits: fall back to the team default when the value is unset.
+        sk0 = init.get("skill0") or (skill_def, skill_def)
+        sk1 = init.get("skill1") or (skill_def, skill_def)
+        a0  = init.get("anticipation0")
+        a1  = init.get("anticipation1")
+        a0  = ant_def if a0 is None else a0
+        a1  = ant_def if a1 is None else a1
+        C0, C1 = TEAM_COLOR[0], TEAM_COLOR[1]
+
+        # Row: seed (+ reset) and strategy names.
+        tb_seed = _make_tb([0.065, 0.475, 0.085, 0.030], "seed ", init.get("seed", ""))
+        btn_seed_none = _make_btn([0.155, 0.475, 0.055, 0.030], "none")
+        tb_t0 = _make_tb([0.285, 0.475, 0.18, 0.030], "T0 ", init.get("team0", ""))
+        tb_t1 = _make_tb([0.565, 0.475, 0.18, 0.030], "T1 ", init.get("team1", ""))
+
+        # Skill / anticipation sliders (team 0 then team 1).
+        sl_acc0 = _make_slider([0.20, 0.430, 0.60, 0.015], "T0 accuracy", sk0[0], C0)
+        sl_pow0 = _make_slider([0.20, 0.397, 0.60, 0.015], "T0 power",    sk0[1], C0)
+        sl_ant0 = _make_slider([0.20, 0.364, 0.60, 0.015], "T0 anticip",  a0,     C0)
+        sl_acc1 = _make_slider([0.20, 0.323, 0.60, 0.015], "T1 accuracy", sk1[0], C1)
+        sl_pow1 = _make_slider([0.20, 0.290, 0.60, 0.015], "T1 power",    sk1[1], C1)
+        sl_ant1 = _make_slider([0.20, 0.257, 0.60, 0.015], "T1 anticip",  a1,     C1)
+
+        # Reset / kickoff / re-run buttons.
+        btn_skill_def = _make_btn([0.10, 0.185, 0.17, 0.038], "Skill default")
+        btn_ant_def   = _make_btn([0.28, 0.185, 0.17, 0.038], "Anticip default")
+        btn_kickoff   = _make_btn([0.46, 0.185, 0.16, 0.038], f"Kickoff: {state['kickoff']}")
+        btn_rerun     = _make_btn([0.72, 0.185, 0.18, 0.038], "Re-run")
+
+        fig.text(0.5, 0.15,
+                 "strategies: SmackBall  AimAtGap  HardOffense  DefensiveWall  "
+                 "TiltAndGap  ReactiveBlock  (or path to a genome .json)",
+                 color="#777777", fontsize=7.5, ha="center")
+
+        def _set_seed_text(value) -> None:
+            # Update the seed box without firing its on_submit (avoids re-run loops).
+            tb_seed.eventson = False
+            tb_seed.set_val(str(value))
+            tb_seed.eventson = True
+
+        def _reset_skill(_event=None) -> None:
+            for sl in (sl_acc0, sl_pow0, sl_acc1, sl_pow1):
+                sl.set_val(skill_def)
+
+        def _reset_ant(_event=None) -> None:
+            for sl in (sl_ant0, sl_ant1):
+                sl.set_val(ant_def)
+
+        def _toggle_kickoff(_event=None) -> None:
+            state["kickoff"] = 1 - state["kickoff"]
+            btn_kickoff.label.set_text(f"Kickoff: {state['kickoff']}")
+            fig.canvas.draw_idle()
+
+        btn_skill_def.on_clicked(_reset_skill)
+        btn_ant_def.on_clicked(_reset_ant)
+        btn_seed_none.on_clicked(lambda _e: _set_seed_text("none"))
+        btn_kickoff.on_clicked(_toggle_kickoff)
+
+        def _do_rerun(_event=None) -> None:
+            _pause()
+            ax.set_title("Running...", color="white")
+            fig.canvas.draw()
+            fig.canvas.flush_events()
+
+            seed_raw = tb_seed.text.strip()
+            seed_val = None if seed_raw.lower() in ("", "none", "random") else int(seed_raw)
+
+            settings = {
+                "seed":          seed_val,
+                "team0":         tb_t0.text.strip(),
+                "team1":         tb_t1.text.strip(),
+                "skill0":        (sl_acc0.val, sl_pow0.val),
+                "skill1":        (sl_acc1.val, sl_pow1.val),
+                "anticipation0": sl_ant0.val,
+                "anticipation1": sl_ant1.val,
+                "kickoff":       state["kickoff"],
+            }
+
+            try:
+                new_field, new_frames, new_title, seed_used = rerun_fn(settings)
+            except Exception as exc:
+                ax.set_title(f"Error: {exc}", color="#ff6666")
+                fig.canvas.draw_idle()
+                return
+
+            new_n = len(new_frames)
+            if new_n == 0:
+                return
+
+            state["field"]   = new_field
+            state["frames"]  = new_frames
+            state["ball_xs"] = [f.ball_x for f in new_frames]
+            state["ball_ys"] = [f.ball_y for f in new_frames]
+            state["foot_xs"] = _compute_foot_offsets(new_field, new_frames)
+            state["n"]       = new_n
+            state["title"]   = new_title
+            state["idx"]     = 0
+            btn_play.label.set_text("play")
+
+            slider.valmax = new_n - 1
+            slider.ax.set_xlim(0, new_n - 1)
+            slider.eventson = False
+            slider.set_val(0)
+            slider.eventson = True
+
+            _set_seed_text(seed_used)
+            render(0)
+
+        btn_rerun.on_clicked(_do_rerun)
+        for _tb in (tb_seed, tb_t0, tb_t1):
+            _tb.on_submit(lambda _text: _do_rerun())
 
     # --- Keyboard ------------------------------------------------------------
     def on_key(event) -> None:
@@ -512,7 +686,7 @@ def interactive_replay(
         elif event.key == "home":
             _pause(); goto(0)
         elif event.key == "end":
-            _pause(); goto(n - 1)
+            _pause(); goto(state["n"] - 1)
 
     fig.canvas.mpl_connect("key_press_event", on_key)
 
