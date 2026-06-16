@@ -10,8 +10,6 @@ import os
 import sys
 from datetime import datetime
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 
 # ---- Settings (edit these) ------------------------------------------------
 
@@ -23,7 +21,8 @@ KICKOFF     = 1         # kickoff team (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
 
 GIF_SLOWDOWN = 1        # >1 saves GIF at lower fps (e.g. 2 = half-speed)
-ANIMATE     = True      # build the replay animation and save output/replay.gif (slow)
+ANIMATE     = False     # build the replay animation and save output/replay.gif (slow)
+INTERACTIVE = True      # open a scrubbable viewer window instead of the GIF (overrides ANIMATE)
 SHOW_REACH  = True      # draw player hitbox rectangles
 SAVE_HEATMAP = True     # show heatmap after the point
 SAVE_ACTION_LOG = True  # print action table to terminal + save JSON
@@ -44,6 +43,12 @@ try:
 except ImportError:
     pass
 
+# The interactive viewer needs a GUI backend; only force the headless Agg
+# backend when we are just writing files (GIF/heatmap) so the GIF render is fast.
+if not INTERACTIVE:
+    matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
 # ---------------------------------------------------------------------------
 
 import config
@@ -56,7 +61,7 @@ from strategy import (SmackBall, AimAtGap, HardOffense,
                       DefensiveWall, TiltAndGap, ReactiveBlock)
 import numpy as np
 from simulation import simulate_point
-from visualization import replay_point, draw_stats
+from visualization import replay_point, draw_stats, interactive_replay
 
 STRATEGIES = {
     "SmackBall":     SmackBall,
@@ -176,8 +181,8 @@ def main():
     hits = sum(1 for f in result.frames if f.event == "hit")
     print(f"Result: {winner_str}  |  {result.ticks} ticks  |  {result.time:.2f}s  |  {hits} hits")
 
-    # Replay
-    save_path = "output/replay.gif" if ANIMATE else None
+    # Replay. The interactive viewer supersedes the GIF render when both are on.
+    save_path = "output/replay.gif" if (ANIMATE and not INTERACTIVE) else None
     label0 = os.path.basename(TEAM_0).replace(".json", "") if TEAM_0.endswith(".json") else TEAM_0
     label1 = os.path.basename(TEAM_1).replace(".json", "") if TEAM_1.endswith(".json") else TEAM_1
 
@@ -197,8 +202,9 @@ def main():
         plt.savefig(heatmap_path, facecolor="#1a1a1a", dpi=100)
         print(f"Saved heatmap to {heatmap_path}")
         os.startfile(os.path.abspath(heatmap_path))
+        plt.close(fig)   # keep it out of the interactive viewer's plt.show()
 
-    if ANIMATE:
+    if ANIMATE and not INTERACTIVE:
         anim = replay_point(
             field, result.frames,
             show_reach=SHOW_REACH,
@@ -210,6 +216,14 @@ def main():
 
         if save_path:
             os.startfile(os.path.abspath(save_path))
+
+    if INTERACTIVE:
+        interactive_replay(
+            field, result.frames,
+            show_reach=SHOW_REACH,
+            fps=FPS,
+            title=f"{label0} vs {label1}",
+        )
 
 
 if __name__ == "__main__":

@@ -199,6 +199,81 @@ def _compute_foot_offsets(field: Field, frames: list[Frame]) -> list[list[float]
     return foot_xs
 
 
+def _render_frame(
+    ax:           plt.Axes,
+    field:        Field,
+    frames:       list[Frame],
+    ball_xs:      list[float],
+    ball_ys:      list[float],
+    foot_xs:      list[list[float]],
+    frame_idx:    int,
+    show_reach:   bool,
+    trail_length: int,
+    title:        str,
+) -> None:
+    """Draw a single replay frame into `ax` (clears it first).
+
+    Shared by the GIF animation (`replay_point`) and the interactive viewer
+    (`interactive_replay`). `ball_xs`, `ball_ys`, and `foot_xs` are precomputed
+    once over the whole point, so any `frame_idx` can be drawn directly without
+    re-stepping the simulation.
+    """
+    ax.cla()
+    fr = frames[frame_idx]
+
+    _draw_base_field(ax, field)
+    _draw_rods_from_offsets(
+        ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, fr.ups, show_reach,
+        foot_x_override=foot_xs[frame_idx],
+        rod_switching=getattr(fr, "rod_switching", None),
+    )
+
+    # Ball trail
+    start = max(0, frame_idx - trail_length)
+    trail_x = ball_xs[start:frame_idx + 1]
+    trail_y = ball_ys[start:frame_idx + 1]
+    if len(trail_x) > 1:
+        ax.plot(trail_x, trail_y, color=BALL_COLOR, linewidth=1, alpha=0.3, zorder=4)
+
+    # Ball
+    ax.add_patch(plt.Circle(
+        (fr.ball_x, fr.ball_y), radius=config.BALL_RADIUS,
+        color=BALL_COLOR, zorder=6,
+    ))
+
+    # Velocity arrow
+    speed = (fr.ball_vx ** 2 + fr.ball_vy ** 2) ** 0.5
+    if speed > 5:
+        scale = 0.08
+        ax.annotate(
+            "", xy=(fr.ball_x + fr.ball_vx * scale, fr.ball_y + fr.ball_vy * scale),
+            xytext=(fr.ball_x, fr.ball_y),
+            arrowprops=dict(arrowstyle="->", color="white", lw=1.2),
+            zorder=7,
+        )
+
+    # Hit flash
+    if fr.event == 'hit':
+        ax.add_patch(plt.Circle(
+            (fr.ball_x, fr.ball_y), radius=5,
+            color="white", alpha=0.3, zorder=5,
+        ))
+
+    ax.set_xlim(-5.5, field.depth + 5.5)
+    ax.set_ylim(-1, field.width + 2.5)
+    ax.set_aspect("equal")
+    ax.set_facecolor(FIELD_GREEN)
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_edgecolor(WALL_GRAY)
+
+    event_str = f"  [{fr.event}]" if fr.event else ""
+    ax.set_title(
+        f"{title}  |  t={fr.time:.2f}s  tick {fr.tick}{event_str}",
+        color="white", pad=6,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Public API — static drawing
 # ---------------------------------------------------------------------------
@@ -290,62 +365,8 @@ def replay_point(
     foot_xs = _compute_foot_offsets(field, frames)
 
     def _update(frame_idx: int) -> None:
-        ax.cla()
-        fr = frames[frame_idx]
-
-        _draw_base_field(ax, field)
-        _draw_rods_from_offsets(
-            ax, field, fr.rod_ys, fr.rod_xs, fr.rod_ctrl, fr.ups, show_reach,
-            foot_x_override=foot_xs[frame_idx],
-            rod_switching=getattr(fr, "rod_switching", None),
-        )
-
-        # Ball trail
-        start = max(0, frame_idx - trail_length)
-        trail_x = ball_xs[start:frame_idx + 1]
-        trail_y = ball_ys[start:frame_idx + 1]
-        if len(trail_x) > 1:
-            ax.plot(trail_x, trail_y, color=BALL_COLOR, linewidth=1, alpha=0.3, zorder=4)
-
-        # Ball
-        ball_circle = plt.Circle(
-            (fr.ball_x, fr.ball_y), radius=config.BALL_RADIUS,
-            color=BALL_COLOR, zorder=6,
-        )
-        ax.add_patch(ball_circle)
-
-        # Velocity arrow
-        speed = (fr.ball_vx ** 2 + fr.ball_vy ** 2) ** 0.5
-        if speed > 5:
-            scale = 0.08
-            ax.annotate(
-                "", xy=(fr.ball_x + fr.ball_vx * scale, fr.ball_y + fr.ball_vy * scale),
-                xytext=(fr.ball_x, fr.ball_y),
-                arrowprops=dict(arrowstyle="->", color="white", lw=1.2),
-                zorder=7,
-            )
-
-        # Hit flash
-        if fr.event == 'hit':
-            hit_circle = plt.Circle(
-                (fr.ball_x, fr.ball_y), radius=5,
-                color="white", alpha=0.3, zorder=5,
-            )
-            ax.add_patch(hit_circle)
-
-        ax.set_xlim(-5.5, field.depth + 5.5)
-        ax.set_ylim(-1, field.width + 2.5)
-        ax.set_aspect("equal")
-        ax.set_facecolor(FIELD_GREEN)
-        ax.tick_params(colors="white")
-        for spine in ax.spines.values():
-            spine.set_edgecolor(WALL_GRAY)
-
-        event_str = f"  [{fr.event}]" if fr.event else ""
-        ax.set_title(
-            f"{title}  |  t={fr.time:.2f}s  tick {fr.tick}{event_str}",
-            color="white", pad=6,
-        )
+        _render_frame(ax, field, frames, ball_xs, ball_ys, foot_xs,
+                      frame_idx, show_reach, trail_length, title)
 
     anim = animation.FuncAnimation(
         fig, _update, frames=len(frames), interval=interval, repeat=False
@@ -360,6 +381,150 @@ def replay_point(
         print(f"Saved animation to {save_path}")
 
     return anim
+
+
+def interactive_replay(
+    field:         Field,
+    frames:        list[Frame],
+    show_reach:    bool  = False,
+    fps:           int   = 30,
+    title:         str   = "Foosball Replay",
+    trail_length:  int   = 20,
+    fig_facecolor: str   = "#1a1a1a",
+) -> None:
+    """Open a scrubbable viewer for a recorded point (like a video player).
+
+    Unlike `replay_point` (which renders to a GIF), this pops up a live
+    matplotlib window with a frame slider plus play/pause and step controls.
+    All frame data is already cached in `frames`, so scrubbing and stepping are
+    instant; nothing is re-simulated.
+
+    Controls
+    --------
+    space        play / pause
+    left / right step back / forward one second (`fps` frames)
+    , / .        step back / forward one tick
+    home / end   jump to first / last frame
+    Plus on-screen buttons and a draggable frame slider.
+
+    Requires an interactive matplotlib backend (i.e. do not force "Agg").
+    Blocks on `plt.show()` until the window is closed.
+    """
+    from matplotlib.widgets import Slider, Button
+
+    n = len(frames)
+    if n == 0:
+        return
+
+    ball_xs = [f.ball_x for f in frames]
+    ball_ys = [f.ball_y for f in frames]
+    foot_xs = _compute_foot_offsets(field, frames)
+
+    fig = plt.figure(figsize=(10, 7))
+    fig.patch.set_facecolor(fig_facecolor)
+    ax = fig.add_axes([0.07, 0.26, 0.86, 0.68])
+
+    state = {"idx": 0, "playing": False}
+
+    def render(idx: int) -> None:
+        _render_frame(ax, field, frames, ball_xs, ball_ys, foot_xs,
+                      idx, show_reach, trail_length, title)
+        fig.canvas.draw_idle()
+
+    # --- Frame slider --------------------------------------------------------
+    ax_slider = fig.add_axes([0.12, 0.15, 0.76, 0.03], facecolor="#333333")
+    slider = Slider(ax_slider, "frame", 0, n - 1, valinit=0,
+                    valstep=1, color="#4C9BE8")
+    slider.label.set_color("white")
+    slider.valtext.set_color("white")
+
+    def _pause() -> None:
+        state["playing"] = False
+        btn_play.label.set_text("play")
+        fig.canvas.draw_idle()
+
+    def goto(idx: int) -> None:
+        idx = max(0, min(n - 1, idx))
+        state["idx"] = idx
+        slider.eventson = False        # move the handle without re-firing on_changed
+        slider.set_val(idx)
+        slider.eventson = True
+        render(idx)
+
+    def on_slider(val: float) -> None:
+        # Fires only on user drags (programmatic set_val runs with eventson off).
+        _pause()
+        state["idx"] = int(val)
+        render(state["idx"])
+
+    slider.on_changed(on_slider)
+
+    # --- Playback timer ------------------------------------------------------
+    timer = fig.canvas.new_timer(interval=max(1, int(1000 / fps)))
+
+    def _tick() -> None:
+        if not state["playing"]:
+            return
+        if state["idx"] >= n - 1:
+            _pause()
+        else:
+            goto(state["idx"] + 1)
+
+    timer.add_callback(_tick)
+
+    # --- Buttons -------------------------------------------------------------
+    def _toggle(_event=None) -> None:
+        if state["idx"] >= n - 1:       # restart from the top if parked at the end
+            goto(0)
+        state["playing"] = not state["playing"]
+        btn_play.label.set_text("pause" if state["playing"] else "play")
+        fig.canvas.draw_idle()
+
+    def _make_btn(rect, label):
+        b = Button(fig.add_axes(rect), label, color="#333333", hovercolor="#4C9BE8")
+        b.label.set_color("white")
+        return b
+
+    btn_back_s = _make_btn([0.20, 0.05, 0.10, 0.05], "<< 1s")
+    btn_back_t = _make_btn([0.31, 0.05, 0.10, 0.05], "< tick")
+    btn_play   = _make_btn([0.42, 0.05, 0.16, 0.05], "play")
+    btn_fwd_t  = _make_btn([0.59, 0.05, 0.10, 0.05], "tick >")
+    btn_fwd_s  = _make_btn([0.70, 0.05, 0.10, 0.05], "1s >>")
+
+    btn_back_s.on_clicked(lambda e: (_pause(), goto(state["idx"] - fps)))
+    btn_back_t.on_clicked(lambda e: (_pause(), goto(state["idx"] - 1)))
+    btn_play.on_clicked(_toggle)
+    btn_fwd_t.on_clicked(lambda e: (_pause(), goto(state["idx"] + 1)))
+    btn_fwd_s.on_clicked(lambda e: (_pause(), goto(state["idx"] + fps)))
+
+    # --- Keyboard ------------------------------------------------------------
+    def on_key(event) -> None:
+        if event.key == " ":
+            _toggle()
+        elif event.key == "left":
+            _pause(); goto(state["idx"] - fps)
+        elif event.key == "right":
+            _pause(); goto(state["idx"] + fps)
+        elif event.key == ",":
+            _pause(); goto(state["idx"] - 1)
+        elif event.key == ".":
+            _pause(); goto(state["idx"] + 1)
+        elif event.key == "home":
+            _pause(); goto(0)
+        elif event.key == "end":
+            _pause(); goto(n - 1)
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    fig.text(
+        0.5, 0.005,
+        "space: play/pause      left / right: -/+ 1 s      , / . : -/+ 1 tick",
+        color="#aaaaaa", fontsize=8, ha="center",
+    )
+
+    render(0)
+    timer.start()
+    plt.show()
 
 
 # ---------------------------------------------------------------------------
