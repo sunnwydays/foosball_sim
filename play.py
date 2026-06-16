@@ -15,18 +15,18 @@ import matplotlib.pyplot as plt
 
 # ---- Settings (edit these) ------------------------------------------------
 
-SEED        = 36        # RNG seed (change for different games, None for random)
-KICKOFF     = 1         # which team kicks off (0 or 1)
+SEED        = 36                # RNG seed (None for random)
+TEAM_0      = "HardOffense"     # strategy name or path to a genome .json
+TEAM_1      = "TiltAndGap"      # e.g. "output/agents/rank0.json"
+
+KICKOFF     = 1         # kickoff team (0 or 1)
 FPS         = 30        # ticks per second (higher = smoother but slower)
+
 GIF_SLOWDOWN = 1        # >1 saves GIF at lower fps (e.g. 2 = half-speed)
-SHOW_REACH  = True      # draw player hitbox rectangles
 ANIMATE     = True      # build the replay animation and save output/replay.gif (slow)
-TRACK_STATS = True      # show heatmap after the point
-
-TEAM_0 = "HardOffense"          # strategy name or path to a genome .json
-TEAM_1 = "TiltAndGap"           # e.g. "output/agents/rank0.json"
-
-SAVE_ACTION_LOG = True   # print action table to terminal + save JSON
+SHOW_REACH  = True      # draw player hitbox rectangles
+SAVE_HEATMAP = True     # show heatmap after the point
+SAVE_ACTION_LOG = True  # print action table to terminal + save JSON
 
 # Skill overrides (e.g. (0.9, 0.9) for (accuracy, power_consistency), None for default)
 # Ignored for genome-based agents (skill genes are in the genome itself)
@@ -159,8 +159,8 @@ def main():
     }
 
     pos_grid  = np.zeros((int(field.depth / config.STATS_GRID_RES),
-                           int(field.width  / config.STATS_GRID_RES))) if TRACK_STATS else None
-    goal_hits: list = [] if TRACK_STATS else None
+                           int(field.width  / config.STATS_GRID_RES))) if SAVE_HEATMAP else None
+    goal_hits: list = [] if SAVE_HEATMAP else None
 
     result = simulate_point(
         field, strats,
@@ -185,7 +185,7 @@ def main():
         _dump_action_log(result.action_log, label0, label1, seed)
 
     # Heatmap (fast — open first)
-    if TRACK_STATS and pos_grid is not None:
+    if SAVE_HEATMAP and pos_grid is not None:
         if pos_grid.max() > 0:
             pos_grid /= pos_grid.max()
         _, ax = plt.subplots(figsize=(10, 6), facecolor="#1a1a1a")
