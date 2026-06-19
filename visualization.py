@@ -822,7 +822,8 @@ def interactive_replay(
         btn_ant_def   = _make_btn([0.28, 0.185, 0.17, 0.038], "Anticip default")
         tb_seed       = _make_tb([0.545, 0.185, 0.075, 0.038], "seed ", init.get("seed", ""))
         btn_seed_none = _make_btn([0.625, 0.185, 0.05, 0.038], "none")
-        btn_rerun     = _make_btn([0.72, 0.185, 0.18, 0.038], "Re-run")
+        btn_rerun     = _make_btn([0.69, 0.185, 0.13, 0.038], "↻ Re-run")
+        btn_rerun_play = _make_btn([0.825, 0.185, 0.13, 0.038], "↻ + ▶")
 
         fig.text(0.5, 0.15,
                  "strategies: SmackBall  AimAtGap  HardOffense  DefensiveWall  "
@@ -910,7 +911,15 @@ def interactive_replay(
             _set_seed_text(seed_used)
             render(0)
 
+        def _do_rerun_play(_event=None) -> None:
+            _do_rerun()
+            if state["n"] > 1:
+                state["playing"] = True
+                btn_play.label.set_text("pause")
+                fig.canvas.draw_idle()
+
         btn_rerun.on_clicked(_do_rerun)
+        btn_rerun_play.on_clicked(_do_rerun_play)
         for _tb in (tb_seed, tb_t0, tb_t1):
             _tb.on_submit(lambda _text: _do_rerun())
 
