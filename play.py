@@ -108,6 +108,13 @@ def _format_event(e) -> str:
             f"ball=({e.ball_pos[0]:.1f}, {e.ball_pos[1]:.1f}){vel}")
 
 
+def _cleanup_old_action_logs(keep: int = 5) -> None:
+    import glob as gl
+    logs = sorted(gl.glob("output/action_log_*.txt"))
+    for old in logs[:-keep]:
+        os.remove(old)
+
+
 def _dump_action_log(log, label0: str, label1: str, seed: int) -> None:
     os.makedirs("output", exist_ok=True)
     counts: dict[str, int] = {}
@@ -127,6 +134,8 @@ def _dump_action_log(log, label0: str, label1: str, seed: int) -> None:
     path = f"output/action_log_{ts}.txt"
     with open(path, "w") as f:
         f.write(text + "\n")
+
+    _cleanup_old_action_logs()
 
     print(text)
     print(f"Saved action log to {path}")
