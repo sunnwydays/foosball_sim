@@ -8,6 +8,7 @@ Pass a seed as an argument to override SEED for this run.
 
 import os
 import sys
+import glob
 from datetime import datetime
 import matplotlib
 
@@ -248,7 +249,9 @@ def main():
                   f"{new_result.ticks} ticks  |  {new_result.time:.2f}s  |  {h} hits")
             if SAVE_ACTION_LOG and new_result.action_log:
                 _dump_action_log(new_result.action_log, lbl0, lbl1, actual_seed)
-            return new_field, new_result.frames, f"{lbl0} vs {lbl1}  (seed={actual_seed})", actual_seed
+            return (new_field, new_result.frames,
+                    f"{lbl0} vs {lbl1}  (seed={actual_seed})",
+                    actual_seed, new_result.action_log)
 
         rerun_init = {
             "seed":   str(seed),
@@ -263,6 +266,10 @@ def main():
             "anticipation_default": config.DEFAULT_ANTICIPATION,
         }
 
+        strategy_choices = list(STRATEGIES.keys()) + sorted(
+            glob.glob(os.path.join("output", "agents", "*.json"))
+        )
+
         interactive_replay(
             field, result.frames,
             show_reach=SHOW_REACH,
@@ -270,6 +277,8 @@ def main():
             title=f"{label0} vs {label1}  (seed={seed})",
             rerun_fn=_rerun_fn,
             rerun_init=rerun_init,
+            action_log=result.action_log if SAVE_ACTION_LOG else None,
+            strategy_choices=strategy_choices,
         )
 
 

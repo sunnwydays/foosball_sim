@@ -15,6 +15,8 @@ Requirements: matplotlib  (pip install matplotlib)
 
 from __future__ import annotations
 
+import bisect
+import os
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -275,6 +277,79 @@ def _render_frame(
 
 
 # ---------------------------------------------------------------------------
+# Action-log panel helpers (used by interactive_replay)
+# ---------------------------------------------------------------------------
+
+# Action-log panel: fixed font and line spacing (independent of event count).
+# When the log outgrows the panel it scrolls, auto-following the current event,
+# and the mouse wheel pans it manually. Past/future events are dimmed; the most
+# recent event at/before the playhead is bold + bright.
+LOG_FONT_SIZE = 8.5    # points
+LOG_LINE_PTS = 14.0    # vertical spacing per line, points (~20 lines per panel)
+LOG_SCROLL_STEP = 3    # lines moved per wheel notch
+LOG_DIM_ALPHA = 0.5
+LOG_GOAL_COLOR = "#ffd24c"
+LOG_PHYSICS_COLOR = "#999999"
+
+
+def _format_log_line(e) -> str:
+    """One compact monospace line for the viewer's action-log panel.
+
+    Mirrors the terminal log (play.py `_format_event`) but trimmed to fit a
+    narrow side panel. `e` is an ActionLogEntry (duck-typed).
+    """
+    t = f"{e.game_time:5.2f}s"
+    bx, by = e.ball_pos
+    pos = f"({bx:.0f},{by:.0f})"
+    if e.rod_label.startswith("GOAL"):
+        return f"{t}  *** {e.action} ***"
+    if e.team == -1:  # physics ball-event (wall bounce / deflect / stop)
+        reach = e.rod_label if len(e.rod_label) <= 16 else e.rod_label[:15] + "+"
+        return f"{t}  {e.action:<9} {pos:<9} [{reach}]"
+    av = e.actual_vel if e.actual_vel is not None else e.intended_vel
+    vel = f"  v=({av[0]:+.0f},{av[1]:+.0f})" if av is not None else ""
+    return f"{t}  {e.rod_label:<7} {e.action:<7} {pos:<9}{vel}"
+
+
+def _choice_label(opt: str) -> str:
+    """Display label for a strategy dropdown entry: bare name, or genome filename."""
+    return os.path.basename(opt)[:-5] if opt.endswith(".json") else opt
+
+
+def _log_window_start(scroll: int, follow: bool, ptr: int, n: int, visible: int) -> int:
+    """Top visible line index for the scrolling log panel.
+
+    When `follow`, nudge the window just enough to keep the current event `ptr`
+    on screen (no jump while it is already visible); always clamp to a valid
+    range. `ptr` is -1 before the first event.
+    """
+    if follow and ptr >= 0:
+        if ptr < scroll:
+            scroll = ptr
+        elif ptr >= scroll + visible:
+            scroll = ptr - visible + 1
+    return max(0, min(max(0, n - visible), scroll))
+
+
+def _events_by_frame(frames: list[Frame], action_log) -> list[int]:
+    """Map each action-log entry to the replay frame index where it occurs.
+
+    Events are timestamped with `game_time`; each frame carries the same
+    `time`, so the entry lands on the last frame whose time is at or before it
+    (goals, logged at game_time+dt, fold onto the final frame). The result is
+    parallel to `action_log` and non-decreasing (events are chronological).
+    """
+    if not action_log:
+        return []
+    times = [f.time for f in frames]
+    last = len(frames) - 1
+    return [
+        max(0, min(last, bisect.bisect_right(times, e.game_time + 1e-6) - 1))
+        for e in action_log
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Public API — static drawing
 # ---------------------------------------------------------------------------
 
@@ -393,6 +468,8 @@ def interactive_replay(
     fig_facecolor: str   = "#1a1a1a",
     rerun_fn                   = None,
     rerun_init: Optional[dict] = None,
+    action_log:   Optional[list] = None,
+    strategy_choices: Optional[list] = None,
 ) -> None:
     """Open a scrubbable viewer for a recorded point (like a video player).
 
@@ -414,7 +491,16 @@ def interactive_replay(
     toggle, reset buttons, and a Re-run button. `rerun_fn(settings)` receives a
     dict with keys seed, team0, team1, skill0, skill1, anticipation0,
     anticipation1, kickoff and must return
-    `(new_field, new_frames, new_title, seed_used)`.
+    `(new_field, new_frames, new_title, seed_used)` or, to keep the action-log
+    panel in sync, `(new_field, new_frames, new_title, seed_used, new_action_log)`.
+
+    When `action_log` (a list of ActionLogEntry) is given, a synced log panel is
+    drawn to the right of the field: it scrolls with playback/scrubbing and bolds
+    the action(s) happening on the current frame.
+
+    `strategy_choices` (a list of strategy names and/or genome .json paths) adds a
+    dropdown arrow beside each T0/T1 box; picking an entry fills the box (typing
+    still works).
 
     Requires an interactive matplotlib backend (i.e. do not force "Agg").
     Blocks on `plt.show()` until the window is closed.
@@ -430,14 +516,26 @@ def interactive_replay(
     foot_xs = _compute_foot_offsets(field, frames)
 
     has_settings = rerun_fn is not None
+    has_log = bool(action_log)
     init = rerun_init or {}
 
     if has_settings:
         fig = plt.figure(figsize=(11, 9.6))
-        ax = fig.add_axes([0.05, 0.575, 0.90, 0.40])
+        if has_log:
+            ax     = fig.add_axes([0.035, 0.575, 0.60, 0.40])
+            ax_log = fig.add_axes([0.655, 0.575, 0.335, 0.40])
+        else:
+            ax     = fig.add_axes([0.05, 0.575, 0.90, 0.40])
+            ax_log = None
     else:
-        fig = plt.figure(figsize=(10, 7))
-        ax = fig.add_axes([0.07, 0.26, 0.86, 0.68])
+        if has_log:
+            fig    = plt.figure(figsize=(12, 7))
+            ax     = fig.add_axes([0.05, 0.26, 0.58, 0.68])
+            ax_log = fig.add_axes([0.66, 0.26, 0.31, 0.68])
+        else:
+            fig    = plt.figure(figsize=(10, 7))
+            ax     = fig.add_axes([0.07, 0.26, 0.86, 0.68])
+            ax_log = None
     fig.patch.set_facecolor(fig_facecolor)
 
     state = {
@@ -451,7 +549,72 @@ def interactive_replay(
         "n":      n,
         "title":  title,
         "kickoff": int(init.get("kickoff", 0) or 0),
+        "action_log":    list(action_log) if has_log else [],
+        "log_frame_idx": _events_by_frame(frames, action_log) if has_log else [],
+        "log_scroll":  0,      # index of the top visible log line
+        "log_follow":  True,   # auto-scroll to keep the current event in view
+        "log_visible": 1,      # lines that fit the panel (set during render)
+        "dropdown":    None,   # open strategy-picker popup, if any
     }
+
+    def render_log(idx: int) -> None:
+        """Draw the action log at a fixed font; scroll to keep the current event visible."""
+        ax_log.cla()
+        ax_log.set_facecolor("#111111")
+        ax_log.set_xticks([])
+        ax_log.set_yticks([])
+        for spine in ax_log.spines.values():
+            spine.set_edgecolor("#444444")
+        log  = state["action_log"]
+        fidx = state["log_frame_idx"]
+        n = len(log)
+        if n == 0:
+            ax_log.set_title("action log  (0 events)", color="#cccccc",
+                             fontsize=9, pad=4)
+            return
+
+        # Fixed font + line spacing; the number of visible lines follows from the
+        # (constant) panel geometry, not the event count.
+        panel_pts = fig.get_size_inches()[1] * ax_log.get_position().height * 72.0
+        visible = max(1, int(panel_pts / LOG_LINE_PTS))
+        dy = LOG_LINE_PTS / panel_pts
+        state["log_visible"] = visible
+
+        # Most recent event at/before the current frame (stays bright until the next).
+        ptr = bisect.bisect_right(fidx, idx) - 1
+        cur_frame = fidx[ptr] if ptr >= 0 else None
+
+        # Auto-follow keeps that event on screen; manual wheel scrolling overrides
+        # it (re-enabled whenever the playhead moves, see goto()).
+        scroll = _log_window_start(state["log_scroll"], state["log_follow"], ptr, n, visible)
+        state["log_scroll"] = scroll
+
+        if n > visible:
+            shown = f"{scroll + 1}-{min(n, scroll + visible)} / {n}"
+            ax_log.set_title(f"action log  ({shown})", color="#cccccc",
+                             fontsize=9, pad=4)
+        else:
+            ax_log.set_title(f"action log  ({n} events)", color="#cccccc",
+                             fontsize=9, pad=4)
+
+        y = 0.98
+        for j in range(scroll, min(n, scroll + visible)):
+            e = log[j]
+            current = fidx[j] == cur_frame
+            if e.rod_label.startswith("GOAL"):
+                color = LOG_GOAL_COLOR
+            elif e.team == -1:
+                color = LOG_PHYSICS_COLOR
+            else:
+                color = TEAM_COLOR[e.team]
+            ax_log.text(
+                0.015, y, ("> " if current else "  ") + _format_log_line(e),
+                color=color, fontsize=LOG_FONT_SIZE, family="monospace", va="top",
+                ha="left", transform=ax_log.transAxes,
+                fontweight="bold" if current else "normal",
+                alpha=1.0 if current else LOG_DIM_ALPHA,
+            )
+            y -= dy
 
     def render(idx: int) -> None:
         _render_frame(
@@ -459,6 +622,8 @@ def interactive_replay(
             state["ball_xs"], state["ball_ys"], state["foot_xs"],
             idx, show_reach, trail_length, state["title"],
         )
+        if ax_log is not None:
+            render_log(idx)
         fig.canvas.draw_idle()
 
     # --- Frame slider --------------------------------------------------------
@@ -479,6 +644,7 @@ def interactive_replay(
     def goto(idx: int) -> None:
         idx = max(0, min(state["n"] - 1, idx))
         state["idx"] = idx
+        state["log_follow"] = True   # moving the playhead re-engages auto-scroll
         slider.eventson = False
         slider.set_val(idx)
         slider.eventson = True
@@ -487,6 +653,7 @@ def interactive_replay(
     def on_slider(val: float) -> None:
         _pause()
         state["idx"] = int(val)
+        state["log_follow"] = True   # scrubbing re-engages auto-scroll
         render(state["idx"])
 
     slider.on_changed(on_slider)
@@ -568,11 +735,79 @@ def interactive_replay(
         a1  = ant_def if a1 is None else a1
         C0, C1 = TEAM_COLOR[0], TEAM_COLOR[1]
 
-        # Row: seed (+ reset) and strategy names.
-        tb_seed = _make_tb([0.065, 0.475, 0.085, 0.030], "seed ", init.get("seed", ""))
-        btn_seed_none = _make_btn([0.155, 0.475, 0.055, 0.030], "none")
-        tb_t0 = _make_tb([0.285, 0.475, 0.18, 0.030], "T0 ", init.get("team0", ""))
-        tb_t1 = _make_tb([0.565, 0.475, 0.18, 0.030], "T1 ", init.get("team1", ""))
+        # Top row: strategy pickers (T0, T1) and the kickoff toggle on the right.
+        t0_box = [0.075, 0.475, 0.165, 0.030]
+        t1_box = [0.405, 0.475, 0.165, 0.030]
+        tb_t0 = _make_tb(t0_box, "T0 ", init.get("team0", ""))
+        tb_t1 = _make_tb(t1_box, "T1 ", init.get("team1", ""))
+        btn_kickoff = _make_btn([0.70, 0.474, 0.16, 0.032], f"Kickoff: {state['kickoff']}")
+
+        # Strategy dropdowns: an arrow beside each box opens a pick-list of the
+        # hardcoded strategies plus any genome .json paths. Picking fills the box
+        # (without auto-running); typing still works.
+        def _set_tb_silent(tb, value) -> None:
+            tb.eventson = False
+            tb.set_val(str(value))
+            tb.eventson = True
+
+        def _close_dropdown(_event=None) -> None:
+            dd = state.get("dropdown")
+            if not dd:
+                return
+            for b in dd["btns"]:
+                b.disconnect_events()
+            for axx in dd["axes"]:
+                axx.remove()
+            state["dropdown"] = None
+            fig.canvas.draw_idle()
+
+        def _open_dropdown(target_tb, box_rect) -> None:
+            _close_dropdown()
+            opts = list(strategy_choices or [])
+            x, y0, w, _h = box_rect
+            pw = max(w + 0.02, 0.16)
+            row_h = min(0.028, (y0 - 0.16) / max(1, len(opts)))
+            axes, btns = [], []
+            for i, opt in enumerate(opts):
+                b_ax = fig.add_axes([x, y0 - (i + 1) * row_h, pw, row_h],
+                                    facecolor="#262626")
+                b_ax.set_zorder(30)
+                b = Button(b_ax, _choice_label(opt), color="#262626", hovercolor="#4C9BE8")
+                b.label.set_color("white")
+                b.label.set_fontsize(7.5)
+                b.label.set_horizontalalignment("left")
+                b.label.set_x(0.04)
+                b.on_clicked(lambda _e, o=opt, tb=target_tb:
+                             (_set_tb_silent(tb, o), _close_dropdown()))
+                axes.append(b_ax)
+                btns.append(b)
+            state["dropdown"] = {"axes": axes, "btns": btns, "owner": target_tb}
+            fig.canvas.draw_idle()
+
+        arrow_axes: list = []
+        if strategy_choices:
+            def _toggle_dropdown(target_tb, box_rect) -> None:
+                dd = state.get("dropdown")
+                if dd and dd.get("owner") is target_tb:
+                    _close_dropdown()
+                else:
+                    _open_dropdown(target_tb, box_rect)
+
+            btn_t0_dd = _make_btn([t0_box[0] + t0_box[2] + 0.004, 0.475, 0.024, 0.030], "v")
+            btn_t1_dd = _make_btn([t1_box[0] + t1_box[2] + 0.004, 0.475, 0.024, 0.030], "v")
+            btn_t0_dd.on_clicked(lambda _e: _toggle_dropdown(tb_t0, t0_box))
+            btn_t1_dd.on_clicked(lambda _e: _toggle_dropdown(tb_t1, t1_box))
+            arrow_axes = [btn_t0_dd.ax, btn_t1_dd.ax]
+
+            def _on_press_close(event) -> None:
+                # Close an open dropdown when clicking anywhere that is neither an
+                # option nor a dropdown arrow (those manage their own open/close).
+                dd = state.get("dropdown")
+                if not dd or event.inaxes in dd["axes"] or event.inaxes in arrow_axes:
+                    return
+                _close_dropdown()
+
+            fig.canvas.mpl_connect("button_press_event", _on_press_close)
 
         # Skill / anticipation sliders (team 0 then team 1).
         sl_acc0 = _make_slider([0.20, 0.430, 0.60, 0.015], "T0 accuracy", sk0[0], C0)
@@ -582,10 +817,11 @@ def interactive_replay(
         sl_pow1 = _make_slider([0.20, 0.290, 0.60, 0.015], "T1 power",    sk1[1], C1)
         sl_ant1 = _make_slider([0.20, 0.257, 0.60, 0.015], "T1 anticip",  a1,     C1)
 
-        # Reset / kickoff / re-run buttons.
+        # Bottom row: resets, then seed (beside Re-run for quick tweaks) and Re-run.
         btn_skill_def = _make_btn([0.10, 0.185, 0.17, 0.038], "Skill default")
         btn_ant_def   = _make_btn([0.28, 0.185, 0.17, 0.038], "Anticip default")
-        btn_kickoff   = _make_btn([0.46, 0.185, 0.16, 0.038], f"Kickoff: {state['kickoff']}")
+        tb_seed       = _make_tb([0.545, 0.185, 0.075, 0.038], "seed ", init.get("seed", ""))
+        btn_seed_none = _make_btn([0.625, 0.185, 0.05, 0.038], "none")
         btn_rerun     = _make_btn([0.72, 0.185, 0.18, 0.038], "Re-run")
 
         fig.text(0.5, 0.15,
@@ -638,11 +874,14 @@ def interactive_replay(
             }
 
             try:
-                new_field, new_frames, new_title, seed_used = rerun_fn(settings)
+                result = rerun_fn(settings)
             except Exception as exc:
                 ax.set_title(f"Error: {exc}", color="#ff6666")
                 fig.canvas.draw_idle()
                 return
+
+            new_field, new_frames, new_title, seed_used = result[:4]
+            new_log = result[4] if len(result) > 4 else []
 
             new_n = len(new_frames)
             if new_n == 0:
@@ -656,6 +895,10 @@ def interactive_replay(
             state["n"]       = new_n
             state["title"]   = new_title
             state["idx"]     = 0
+            state["action_log"]    = list(new_log) if (has_log and new_log) else []
+            state["log_frame_idx"] = _events_by_frame(new_frames, state["action_log"])
+            state["log_scroll"]    = 0
+            state["log_follow"]    = True
             btn_play.label.set_text("play")
 
             slider.valmax = new_n - 1
@@ -690,9 +933,25 @@ def interactive_replay(
 
     fig.canvas.mpl_connect("key_press_event", on_key)
 
+    # --- Mouse wheel: pan the log panel manually -----------------------------
+    def on_scroll(event) -> None:
+        if ax_log is None or event.inaxes is not ax_log:
+            return
+        n = len(state["action_log"])
+        max_scroll = max(0, n - state["log_visible"])
+        if max_scroll == 0:
+            return
+        step = -LOG_SCROLL_STEP if event.button == "up" else LOG_SCROLL_STEP
+        state["log_scroll"] = max(0, min(max_scroll, state["log_scroll"] + step))
+        state["log_follow"] = False   # user took control until the playhead moves
+        render(state["idx"])
+
+    fig.canvas.mpl_connect("scroll_event", on_scroll)
+
     fig.text(
         0.5, 0.005,
-        "space: play/pause      left / right: -/+ 1 s      , / . : -/+ 1 tick",
+        "space: play/pause      left / right: -/+ 1 s      , / . : -/+ 1 tick"
+        + ("      wheel over log: scroll" if has_log else ""),
         color="#aaaaaa", fontsize=8, ha="center",
     )
 
