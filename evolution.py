@@ -131,6 +131,8 @@ class ParameterizedStrategy(Strategy):
         # Defending rods always track ball/trajectory. Attacking rods lerp between
         # tracking and field center based on defensive_activity.
         # Genes: movement_control, defensive_activity, lift_atk
+        if not controlled_rods:  # every hand is mid-switch
+            return {}
 
         team = controlled_rods[0][1].team
         attack_dir = 1 if team == 0 else -1
