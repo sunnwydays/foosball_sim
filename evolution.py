@@ -23,7 +23,9 @@ T_PLATEAU = 0.01
 N_PLATEAU = 5
 
 RR_POINTS = 16
-BENCHMARK_POINTS = 100
+BENCHMARK_POINTS = 500  # per baseline, final benchmark of the champion
+GEN_BENCH_POINTS = 40   # per baseline, each generation's best (RR win rate is
+                        # relative to the population, so it can't show progress)
 MIN_HOF_WR = 0.2
 N_PARENTS = 2 # undefined behaviour if != 2
 POP_SIZE = 50
@@ -53,6 +55,15 @@ for name, genes in GENE_GROUPS.items():
     idx += len(genes)
 GENOME_SIZE = idx  # 17
 
+BASELINES = {
+    "SmackBall":     SmackBall,
+    "AimAtGap":      AimAtGap,
+    "HardOffense":   HardOffense,
+    "DefensiveWall": DefensiveWall,
+    "TiltAndGap":    TiltAndGap,
+    "ReactiveBlock": ReactiveBlock,
+}
+
 @dataclass
 class EvolutionHistory:
     gen:          list[int]   = dc_field(default_factory=list)
@@ -61,6 +72,7 @@ class EvolutionHistory:
     min_wr:       list[float] = dc_field(default_factory=list)
     std_wr:       list[float] = dc_field(default_factory=list)
     best_genomes: list        = dc_field(default_factory=list)  # list of np.ndarray (GENOME_SIZE,)
+    bench_wr:     list[dict]  = dc_field(default_factory=list)  # best genome's win rate vs each baseline
 
 def _group(genome: Genome, name: str) -> Genome:
     """Slice the genes belonging to a named group out of the flat genome array."""
@@ -314,6 +326,29 @@ def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]
     )
     return result.team0_wins, result.team1_wins, result.n_simulations
 
+def _bench_worker(args: tuple[np.ndarray, str, int]) -> tuple[int, int, int]:
+    genome, name, n_points = args
+    result = run_monte_carlo(
+        Field(),
+        {0: ParameterizedStrategy(genome), 1: BASELINES[name]()},
+        n_simulations=n_points,
+    )
+    return result.team0_wins, result.team1_wins, result.n_simulations
+
+def benchmark(genome: Genome, n_points: int, pool) -> dict[str, tuple[int, int, int]]:
+    """Play genome against every baseline: {name: (wins, losses, points)}."""
+    # split each baseline into chunks so the work spreads across all workers
+    n_chunks = 4
+    chunk = math.ceil(n_points / n_chunks)
+    args = [(genome, name, chunk) for name in BASELINES for _ in range(n_chunks)]
+    results = list(pool.map(_bench_worker, args))
+
+    out = {name: (0, 0, 0) for name in BASELINES}
+    for (_, name, _), (w, l, g) in zip(args, results):
+        w0, l0, g0 = out[name]
+        out[name] = (w0 + w, l0 + l, g0 + g)
+    return out
+
 def rr_tourney(population: list[Agent], pool=None) -> list[float]:
     if pool is None:
         with _make_pool() as pool:
@@ -395,7 +430,8 @@ def make_children(population: list[Agent], scores: list[float]):
     return children
 
 
-def _record(history: EvolutionHistory, gen: int, scores: list[float], population: list["Agent"]) -> None:
+def _record(history: EvolutionHistory, gen: int, scores: list[float], population: list["Agent"],
+            bench: dict[str, tuple[int, int, int]]) -> None:
     arr = np.array(scores)
     best_idx = int(np.argmax(arr))
     history.gen.append(gen)
@@ -404,6 +440,7 @@ def _record(history: EvolutionHistory, gen: int, scores: list[float], population
     history.min_wr.append(float(arr.min()))
     history.std_wr.append(float(arr.std()))
     history.best_genomes.append(population[best_idx].genome.copy())
+    history.bench_wr.append({name: w / g for name, (w, _, g) in bench.items()})
 
 def main() -> None:
     import time
@@ -416,10 +453,15 @@ def main() -> None:
         for gen in range(N_GENERATIONS + 1):  # last pass only scores the final population
             t0 = time.perf_counter()
             scores = rr_tourney(population, pool)
+            best = population[int(np.argmax(scores))]
+            bench = benchmark(best.genome, GEN_BENCH_POINTS, pool)
             elapsed = time.perf_counter() - t0
 
-            _record(history, gen, scores, population)
+            _record(history, gen, scores, population, bench)
+
+            bw = history.bench_wr[-1]
             print(f"gen {gen:02d}  best_wr={history.best_wr[-1]:.3f}  mean_wr={history.mean_wr[-1]:.3f}"
+                  f"  vs baselines: min={min(bw.values()):.2f} mean={np.mean(list(bw.values())):.2f}"
                   f"  ({elapsed:.1f}s)", flush=True)
 
             if gen < N_GENERATIONS:
@@ -431,19 +473,12 @@ def main() -> None:
             save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
             print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
 
-    print("\nBenchmark (rank 0 vs hardcoded strategies):")
-    best_strat = ParameterizedStrategy(ranked[0][1].genome)
-    for name, strat in [
-        ("SmackBall",     SmackBall()),
-        ("AimAtGap",      AimAtGap()),
-        ("HardOffense",   HardOffense()),
-        ("DefensiveWall", DefensiveWall()),
-        ("TiltAndGap",    TiltAndGap()),
-        ("ReactiveBlock", ReactiveBlock()),
-    ]:
-        res = run_monte_carlo(Field(), {0: best_strat, 1: strat}, n_simulations=BENCHMARK_POINTS)
-        wr = res.team0_wins / res.n_simulations
-        print(f"  vs {name:<16}  wr={wr:.3f}")
+        print(f"\nBenchmark (rank 0 vs hardcoded strategies, {BENCHMARK_POINTS} points each):")
+        bench = benchmark(ranked[0][1].genome, BENCHMARK_POINTS, pool)
+
+    for name, (w, l, g) in bench.items():
+        verdict = "WIN" if w > l else "LOSS"
+        print(f"  vs {name:<16}  {w / g:.3f} - {l / g:.3f}  (draw {(g - w - l) / g:.3f})  {verdict}")
 
     from visualization import plot_evolution_stats
     plot_evolution_stats(history, save_path="output/evolution_stats.png")
