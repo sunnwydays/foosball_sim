@@ -25,7 +25,7 @@ GIF_SLOWDOWN = 1        # >1 saves GIF at lower fps (e.g. 2 = half-speed)
 ANIMATE     = False     # build the replay animation and save output/replay.gif (slow)
 INTERACTIVE = True      # open a scrubbable viewer window instead of the GIF (overrides ANIMATE)
 SHOW_REACH  = True      # draw player hitbox rectangles
-SAVE_HEATMAP = True     # show heatmap after the point
+SAVE_HEATMAP = False     # show heatmap after the point
 SAVE_ACTION_LOG = True  # print action table to terminal + save JSON
 
 # Skill overrides (e.g. (0.9, 0.9) for (accuracy, power_consistency), None for default)
