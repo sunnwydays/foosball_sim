@@ -554,6 +554,7 @@ def interactive_replay(
         "log_scroll":  0,      # index of the top visible log line
         "log_follow":  True,   # auto-scroll to keep the current event in view
         "log_visible": 1,      # lines that fit the panel (set during render)
+        "log_dy":      0.0,    # line height in axes fraction (set during render)
         "dropdown":    None,   # open strategy-picker popup, if any
     }
 
@@ -579,6 +580,7 @@ def interactive_replay(
         visible = max(1, int(panel_pts / LOG_LINE_PTS))
         dy = LOG_LINE_PTS / panel_pts
         state["log_visible"] = visible
+        state["log_dy"] = dy
 
         # Most recent event at/before the current frame (stays bright until the next).
         ptr = bisect.bisect_right(fidx, idx) - 1
@@ -957,10 +959,29 @@ def interactive_replay(
 
     fig.canvas.mpl_connect("scroll_event", on_scroll)
 
+    # --- Mouse click: jump to the clicked log event --------------------------
+    def on_log_click(event) -> None:
+        if ax_log is None or event.inaxes is not ax_log or event.button != 1:
+            return
+        dy = state["log_dy"]
+        if dy <= 0:
+            return
+        # Lines are drawn top-down from y=0.98 (axes fraction), one per dy.
+        _, y_ax = ax_log.transAxes.inverted().transform((event.x, event.y))
+        if y_ax > 0.98:
+            return
+        j = state["log_scroll"] + int((0.98 - y_ax) / dy)
+        if j >= len(state["action_log"]):
+            return
+        _pause()
+        goto(state["log_frame_idx"][j])
+
+    fig.canvas.mpl_connect("button_press_event", on_log_click)
+
     fig.text(
         0.5, 0.005,
         "space: play/pause      left / right: -/+ 1 s      , / . : -/+ 1 tick"
-        + ("      wheel over log: scroll" if has_log else ""),
+        + ("      log: click to jump, wheel to scroll" if has_log else ""),
         color="#aaaaaa", fontsize=8, ha="center",
     )
 
