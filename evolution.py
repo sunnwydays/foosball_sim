@@ -486,8 +486,12 @@ def main() -> None:
         bench = benchmark(ranked[0][1].genome, BENCHMARK_POINTS, pool)
 
     for name, (w, l, g) in bench.items():
-        verdict = "WIN" if w > l else "LOSS"
-        print(f"  vs {name:<16}  {w / g:.3f} - {l / g:.3f}  (draw {(g - w - l) / g:.3f})  {verdict}")
+        # if decisive points were coin flips, wins ~ Binomial(w + l, 0.5),
+        # so z = (w - l) / sqrt(w + l); |z| < 2 is within noise
+        z = (w - l) / math.sqrt(w + l) if w + l else 0.0
+        verdict = "WIN" if z >= 2 else "LOSS" if z <= -2 else "TIE"
+        print(f"  vs {name:<16}  {w / g:.3f} - {l / g:.3f}  (draw {(g - w - l) / g:.3f})"
+              f"  z={z:+.1f}  {verdict}")
 
     from visualization import plot_evolution_stats
     plot_evolution_stats(history, save_path="output/evolution_stats.png")
