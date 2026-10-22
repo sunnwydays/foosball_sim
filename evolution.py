@@ -299,6 +299,12 @@ def initialize_population() -> list[Agent]:
         population.append(Agent(np.concatenate(parts)))
     return population
 
+def _make_pool():
+    # ProcessPoolExecutor, not multiprocessing.Pool: if a worker dies, Pool.map
+    # silently waits forever on the lost task, while this raises BrokenProcessPool
+    from concurrent.futures import ProcessPoolExecutor
+    return ProcessPoolExecutor(N_WORKERS if N_WORKERS > 0 else None)  # None -> cpu_count()
+
 def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]:
     g0, g1 = args
     result = run_monte_carlo(
@@ -308,15 +314,15 @@ def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]
     )
     return result.team0_wins, result.team1_wins, result.n_simulations
 
-def rr_tourney(population: list[Agent]) -> list[float]:
-    from multiprocessing import Pool
+def rr_tourney(population: list[Agent], pool=None) -> list[float]:
+    if pool is None:
+        with _make_pool() as pool:
+            return rr_tourney(population, pool)
+
     n = len(population)
     pairs = list(combinations(range(n), 2))
     args = [(population[i].genome, population[j].genome) for i, j in pairs]
-
-    workers = N_WORKERS if N_WORKERS > 0 else None  # None -> cpu_count()
-    with Pool(workers) as pool:
-        results = pool.map(_matchup_worker, args)
+    results = list(pool.map(_matchup_worker, args))
 
     wins  = [0] * n
     games = [0] * n
@@ -404,25 +410,26 @@ def main() -> None:
     history = EvolutionHistory()
     population = initialize_population()
 
-    for gen in range(N_GENERATIONS):
-        t0 = time.perf_counter()
-        scores = rr_tourney(population)
-        elapsed = time.perf_counter() - t0
-        _record(history, gen, scores, population)
-        print(f"gen {gen:02d}  best_wr={history.best_wr[-1]:.3f}  mean_wr={history.mean_wr[-1]:.3f}  ({elapsed:.1f}s)")
-        population = make_children(population, scores)
-
-    print("Scoring final population...")
-    scores = rr_tourney(population)
-    _record(history, N_GENERATIONS, scores, population)
-
-    ranked = sorted(zip(scores, population), key=lambda x: x[0], reverse=True)
-
     os.makedirs("output/agents", exist_ok=True)
-    for rank, (wr, agent) in enumerate(ranked[:5]):
-        path = f"output/agents/rank{rank}.json"
-        save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
-        print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
+
+    with _make_pool() as pool:
+        for gen in range(N_GENERATIONS + 1):  # last pass only scores the final population
+            t0 = time.perf_counter()
+            scores = rr_tourney(population, pool)
+            elapsed = time.perf_counter() - t0
+
+            _record(history, gen, scores, population)
+            print(f"gen {gen:02d}  best_wr={history.best_wr[-1]:.3f}  mean_wr={history.mean_wr[-1]:.3f}"
+                  f"  ({elapsed:.1f}s)", flush=True)
+
+            if gen < N_GENERATIONS:
+                population = make_children(population, scores)
+
+        ranked = sorted(zip(scores, population), key=lambda x: x[0], reverse=True)
+        for rank, (wr, agent) in enumerate(ranked[:5]):
+            path = f"output/agents/rank{rank}.json"
+            save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
+            print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
 
     print("\nBenchmark (rank 0 vs hardcoded strategies):")
     best_strat = ParameterizedStrategy(ranked[0][1].genome)
