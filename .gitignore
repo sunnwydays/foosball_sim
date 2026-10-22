@@ -1,6 +1,6 @@
 __pycache__/
 .venv/
 CLAUDE.md
-output/
+output*/
 idea_log.md
 play_local.py
