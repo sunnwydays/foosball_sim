@@ -73,6 +73,8 @@ FRICTION       = 10.0     # cm/s² — constant deceleration (ball slows each ti
 STOP_THRESHOLD = 3.0      # cm/s — below this, ball counts as stopped
 BALL_MAX_SPEED = 260.0    # cm/s — absolute cap on ball speed
 HIT_SPEED      = 140.0    # cm/s — default intended shot speed
+CONTACT_STEP   = 4.0      # cm — max ball travel between held-rod contact checks
+                          # (must stay below the 11 cm reach-box depth)
 
 # ---------------------------------------------------------------------------
 # Shot noise — maps accuracy/power_consistency (0-1) to distribution std devs

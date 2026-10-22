@@ -8,10 +8,11 @@ Tick order
 1. Decrement timers (reaction, switch)
 2. Strategy: choose_hands → choose_pos (respecting reaction lockout)
 3. Move rods toward targets (step_movement)
-4. Move ball (step_ball: velocity, friction, wall bounces)
-5. Detect player-ball overlaps → strategy: choose_hit
-6. Apply hits (add velocity, set reaction timer, update last-hit tracking)
-7. Check goal / time limit
+4. Move ball (step_ball: velocity, friction, wall bounces), in substeps of at
+   most CONTACT_STEP cm so fast balls can't skip a held rod; after each:
+5. Check goal, detect held-player overlaps, resolve committed swings
+   (hit, set reaction timer, update last-hit tracking) or rigid bounces
+6. Dead-ball / stall checks, record frame; time limit after the last tick
 
 Frame recording
 ---------------
@@ -368,48 +369,184 @@ def simulate_point(
             rod.step_movement(dt)
 
         # --------------------------------------------------------------
-        # 4. Move ball
+        # 4-5. Move ball + resolve held-rod contact, in substeps
+        #
+        # Held-rod contact is checked after every CONTACT_STEP cm of ball
+        # travel, not once per tick: at 10 FPS a fast shot moves further per
+        # tick than a held player's reach box is deep, and would jump over it.
         # --------------------------------------------------------------
-        _vx_pre, _vy_pre = ball.vx, ball.vy
-        _x_pre,  _y_pre  = ball.x,  ball.y
+        elapsed = 0.0
+        while elapsed < dt - 1e-9:
+            h = dt - elapsed
+            if ball.speed * h > config.CONTACT_STEP:
+                h = config.CONTACT_STEP / ball.speed
+            elapsed += h
+            t_now = game_time + elapsed   # time at the end of this substep
 
-        ball_result = step_ball(ball, field, dt,
-                                ball_radius=config.BALL_RADIUS,
-                                pos_grid=pos_grid)
+            # --------------------------------------------------------------
+            # 4. Move ball
+            # --------------------------------------------------------------
+            _vx_pre, _vy_pre = ball.vx, ball.vy
+            _x_pre,  _y_pre  = ball.x,  ball.y
 
-        if collect_action_log:
-            # Wall bounces and figurine contact are reported by the physics, so
-            # the cause is read from real events rather than inferred from the
-            # velocity delta (which is dominated by per-tick friction).
-            _walls = [name for flag, name in (
-                (ball.bounce_left,   'L'),
-                (ball.bounce_right,  'R'),
-                (ball.bounce_top,    'T'),
-                (ball.bounce_bottom, 'B'),
-            ) if flag]
-            if abs(ball.vx) < 0.001 and abs(ball.vy) < 0.001 and (abs(_vx_pre) > 0.01 or abs(_vy_pre) > 0.01):
-                _cause: Optional[str] = 'STOP'
-            elif _walls:
-                _cause = 'WALL_' + '_'.join(_walls)
-            elif ball.contacted_player:
-                _cause = 'DEFLECT'
-            else:
-                _cause = None
-            if _cause is not None:
-                _reach = ','.join(
-                    _rod_labels[_ri] for _ri, _rr in enumerate(field.rods)
-                    if not _rr.up
-                    and abs(ball.x - _rr._base_x) <= _rr.rod_x_reach + _rr.thickness / 2 + config.BALL_RADIUS
-                ) or '-'
-                _action_log.append(ActionLogEntry(
-                    game_time    = game_time,
-                    team         = -1,
-                    rod_label    = _reach,
-                    action       = _cause,
-                    ball_pos     = (ball.x, ball.y),
-                    intended_vel = (_vx_pre, _vy_pre),
-                    actual_vel   = (ball.vx, ball.vy),
-                ))
+            ball_result = step_ball(ball, field, h,
+                                    ball_radius=config.BALL_RADIUS,
+                                    pos_grid=pos_grid)
+
+            if collect_action_log:
+                # Wall bounces and figurine contact are reported by the physics, so
+                # the cause is read from real events rather than inferred from the
+                # velocity delta (which is dominated by per-tick friction).
+                _walls = [name for flag, name in (
+                    (ball.bounce_left,   'L'),
+                    (ball.bounce_right,  'R'),
+                    (ball.bounce_top,    'T'),
+                    (ball.bounce_bottom, 'B'),
+                ) if flag]
+                if abs(ball.vx) < 0.001 and abs(ball.vy) < 0.001 and (abs(_vx_pre) > 0.01 or abs(_vy_pre) > 0.01):
+                    _cause: Optional[str] = 'STOP'
+                elif _walls:
+                    _cause = 'WALL_' + '_'.join(_walls)
+                elif ball.contacted_player:
+                    _cause = 'DEFLECT'
+                else:
+                    _cause = None
+                if _cause is not None:
+                    _reach = ','.join(
+                        _rod_labels[_ri] for _ri, _rr in enumerate(field.rods)
+                        if not _rr.up
+                        and abs(ball.x - _rr._base_x) <= _rr.rod_x_reach + _rr.thickness / 2 + config.BALL_RADIUS
+                    ) or '-'
+                    _action_log.append(ActionLogEntry(
+                        game_time    = game_time,
+                        team         = -1,
+                        rod_label    = _reach,
+                        action       = _cause,
+                        ball_pos     = (ball.x, ball.y),
+                        intended_vel = (_vx_pre, _vy_pre),
+                        actual_vel   = (ball.vx, ball.vy),
+                    ))
+
+            # Check for goal
+            if ball_result.startswith('goal:'):
+                winner = int(ball_result.split(':')[1])
+                is_self_goal = last_hit_team is not None and last_hit_team != winner
+                if goal_hits is not None and last_hit_pos is not None:
+                    goal_team = 1 - winner  # team whose goal the ball entered
+                    goal_hits.append((*last_hit_pos, goal_team, is_self_goal))
+                if record:
+                    _active = team_states[0].active_rods | team_states[1].active_rods
+                    frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}', _active))
+                if collect_action_log:
+                    _scored_on = 1 - winner
+                    _suffix = " (own goal)" if is_self_goal else ""
+                    _action_log.append(ActionLogEntry(
+                        game_time    = game_time + dt,
+                        team         = winner,
+                        rod_label    = f"GOAL{_suffix}",
+                        action       = f"T{winner} scores on T{_scored_on}",
+                        ball_pos     = (ball.x, ball.y),
+                        intended_vel = None,
+                        actual_vel   = None,
+                    ))
+                return PointResult(
+                    winner       = winner,
+                    ticks        = tick + 1,
+                    time         = game_time + dt,
+                    frames       = frames,
+                    action_log   = _action_log,
+                    outcome      = 'goal',
+                    is_self_goal = is_self_goal,
+                )
+
+            # --------------------------------------------------------------
+            # 5. Detect overlaps + resolve any committed swing
+            #
+            # A controlled rod connects only if it has a pending swing whose active
+            # window brackets this contact. Otherwise (whiff, or no swing armed) the
+            # held rod rigid-bounces the ball. Uncontrolled-rod contact was already
+            # handled passively inside step_ball.
+            # --------------------------------------------------------------
+            overlaps = find_overlapping_players(ball, field)
+
+            for rod_idx, player_idx in overlaps:
+                rod  = field.rods[rod_idx]
+                team = rod.team
+
+                # Double-hit check: same player can't hit twice in a row
+                # unless ball has stopped (which resets last_hit)
+                if last_hit == (rod_idx, player_idx):
+                    continue
+
+                s = rod.pending_swing
+
+                if s is not None and s.active_start <= t_now <= s.window_end:
+                    # Swing connects — replace ball velocity with the committed swing vector.
+                    ball.vx = s.vx
+                    ball.vy = s.vy
+
+                    # Clamp to max speed
+                    speed = ball.speed
+                    if speed > config.BALL_MAX_SPEED:
+                        factor = config.BALL_MAX_SPEED / speed
+                        ball.vx *= factor
+                        ball.vy *= factor
+
+                    if collect_action_log:
+                        _action_log.append(ActionLogEntry(
+                            game_time    = game_time,
+                            team         = team,
+                            rod_label    = _rod_labels[rod_idx],
+                            action       = 'HIT',
+                            ball_pos     = (ball.x, ball.y),
+                            intended_vel = (s.vx, s.vy),
+                            actual_vel   = (ball.vx, ball.vy),
+                        ))
+
+                    rod.pending_swing = None
+
+                    # Set opponent's reaction timer
+                    opp_team = 1 - team
+                    team_states[opp_team].reaction_timer = config.REACTION_TIME
+
+                    # Update last-hit tracking
+                    last_hit      = (rod_idx, player_idx)
+                    last_hit_pos  = (ball.x, ball.y)
+                    last_hit_team = team
+                    event = 'hit'
+
+                    # Only one hit per substep (first overlap wins)
+                    break
+
+                elif rod.controlled and rod.switch_timer <= 0:
+                    # Whiff (mistimed swing) or no swing armed on a settled rod:
+                    # bounce the ball off rigid players (no pushback)
+                    if not _resolve_rigid_contact(ball, rod, player_idx,
+                                                  _x_pre, _y_pre, reflect=True):
+                        continue
+                    _had_swing = s is not None
+                    _intended  = (s.vx, s.vy) if _had_swing else None
+                    rod.pending_swing = None
+                    if collect_action_log:
+                        _action_log.append(ActionLogEntry(
+                            game_time    = game_time,
+                            team         = team,
+                            rod_label    = _rod_labels[rod_idx],
+                            action       = 'WHIFF' if _had_swing else 'PASSIVE',
+                            ball_pos     = (ball.x, ball.y),
+                            intended_vel = _intended,
+                            actual_vel   = None,
+                        ))
+                    # NOTE: per approved plan, a whiff bounce also locks the opponent's
+                    # reaction timer. Revisit if this proves to give the whiffer an
+                    # unintended tempo advantage.
+                    opp_team = 1 - team
+                    team_states[opp_team].reaction_timer = config.REACTION_TIME
+                    last_hit = (rod_idx, player_idx)
+                    break
+
+            if ball_result == 'stopped':
+                break
 
         # --- Anti-stalling checks ---
         teams_in_reach = _teams_with_reach(ball, field)
@@ -431,125 +568,6 @@ def simulate_point(
                                    frames=frames, action_log=_action_log, outcome='stallout')
         else:
             possession_timer[0] = possession_timer[1] = 0.0
-
-        # Check for goal
-        if ball_result.startswith('goal:'):
-            winner = int(ball_result.split(':')[1])
-            is_self_goal = last_hit_team is not None and last_hit_team != winner
-            if goal_hits is not None and last_hit_pos is not None:
-                goal_team = 1 - winner  # team whose goal the ball entered
-                goal_hits.append((*last_hit_pos, goal_team, is_self_goal))
-            if record:
-                _active = team_states[0].active_rods | team_states[1].active_rods
-                frames.append(_make_frame(tick, game_time, ball, field, f'goal:{winner}', _active))
-            if collect_action_log:
-                _scored_on = 1 - winner
-                _suffix = " (own goal)" if is_self_goal else ""
-                _action_log.append(ActionLogEntry(
-                    game_time    = game_time + dt,
-                    team         = winner,
-                    rod_label    = f"GOAL{_suffix}",
-                    action       = f"T{winner} scores on T{_scored_on}",
-                    ball_pos     = (ball.x, ball.y),
-                    intended_vel = None,
-                    actual_vel   = None,
-                ))
-            return PointResult(
-                winner       = winner,
-                ticks        = tick + 1,
-                time         = game_time + dt,
-                frames       = frames,
-                action_log   = _action_log,
-                outcome      = 'goal',
-                is_self_goal = is_self_goal,
-            )
-
-        # --------------------------------------------------------------
-        # 5. Detect overlaps + resolve any committed swing
-        #
-        # A controlled rod connects only if it has a pending swing whose active
-        # window brackets this contact. Otherwise (whiff, or no swing armed) the
-        # held rod rigid-bounces the ball. Uncontrolled-rod contact was already
-        # handled passively inside step_ball.
-        # --------------------------------------------------------------
-        overlaps = find_overlapping_players(ball, field)
-
-        for rod_idx, player_idx in overlaps:
-            rod  = field.rods[rod_idx]
-            team = rod.team
-
-            # Double-hit check: same player can't hit twice in a row
-            # unless ball has stopped (which resets last_hit)
-            if last_hit == (rod_idx, player_idx):
-                continue
-
-            s = rod.pending_swing
-
-            if s is not None and s.active_start <= game_time <= s.window_end:
-                # Swing connects — replace ball velocity with the committed swing vector.
-                ball.vx = s.vx
-                ball.vy = s.vy
-
-                # Clamp to max speed
-                speed = ball.speed
-                if speed > config.BALL_MAX_SPEED:
-                    factor = config.BALL_MAX_SPEED / speed
-                    ball.vx *= factor
-                    ball.vy *= factor
-
-                if collect_action_log:
-                    _action_log.append(ActionLogEntry(
-                        game_time    = game_time,
-                        team         = team,
-                        rod_label    = _rod_labels[rod_idx],
-                        action       = 'HIT',
-                        ball_pos     = (ball.x, ball.y),
-                        intended_vel = (s.vx, s.vy),
-                        actual_vel   = (ball.vx, ball.vy),
-                    ))
-
-                rod.pending_swing = None
-
-                # Set opponent's reaction timer
-                opp_team = 1 - team
-                team_states[opp_team].reaction_timer = config.REACTION_TIME
-
-                # Update last-hit tracking
-                last_hit      = (rod_idx, player_idx)
-                last_hit_pos  = (ball.x, ball.y)
-                last_hit_team = team
-                event = 'hit'
-
-                # Only one hit per tick (first overlap wins)
-                break
-
-            elif rod.controlled and rod.switch_timer <= 0:
-                # Whiff (mistimed swing) or no swing armed on a settled rod:
-                # bounce the ball off rigid players (no pushback)
-                if not _resolve_rigid_contact(ball, rod, player_idx,
-                                              _x_pre, _y_pre, reflect=True):
-                    continue
-                _had_swing = s is not None
-                _intended  = (s.vx, s.vy) if _had_swing else None
-                rod.pending_swing = None
-                if collect_action_log:
-                    _action_log.append(ActionLogEntry(
-                        game_time    = game_time,
-                        team         = team,
-                        rod_label    = _rod_labels[rod_idx],
-                        action       = 'WHIFF' if _had_swing else 'PASSIVE',
-                        ball_pos     = (ball.x, ball.y),
-                        intended_vel = _intended,
-                        actual_vel   = None,
-                    ))
-                # NOTE: per approved plan, a whiff bounce also locks the opponent's
-                # reaction timer. Revisit if this proves to give the whiffer an
-                # unintended tempo advantage.
-                opp_team = 1 - team
-                team_states[opp_team].reaction_timer = config.REACTION_TIME
-                last_hit = (rod_idx, player_idx)
-                break
-
 
         # Reset last_hit if ball stopped
         if ball.stopped:
