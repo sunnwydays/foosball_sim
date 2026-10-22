@@ -207,7 +207,7 @@ def _step_ball_inner(
                 rod.up = True
 
             # 2. Ball response
-            reflect_x = offset_toward_ball <= contact.glance_threshold
+            reflect_x = offset_toward_ball > contact.glance_threshold
 
             if reflect_x:
                 ball.vx *= -contact.slowdown
