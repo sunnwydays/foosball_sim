@@ -442,11 +442,17 @@ def _record(history: EvolutionHistory, gen: int, scores: list[float], population
     history.best_genomes.append(population[best_idx].genome.copy())
     history.bench_wr.append({name: w / g for name, (w, _, g) in bench.items()})
 
+def save_history(history: EvolutionHistory, path: str) -> None:
+    obj = {k: v for k, v in history.__dict__.items() if k != "best_genomes"}
+    obj["best_genomes"] = [g.tolist() for g in history.best_genomes]
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(obj, f, indent=1)
+
 def main() -> None:
     import time
     history = EvolutionHistory()
     population = initialize_population()
-
     os.makedirs("output/agents", exist_ok=True)
 
     with _make_pool() as pool:
@@ -458,6 +464,9 @@ def main() -> None:
             elapsed = time.perf_counter() - t0
 
             _record(history, gen, scores, population, bench)
+            # checkpoint every generation so a crash or sleep doesn't lose the run
+            save_history(history, "output/evolution_history.json")
+            save_agent(best, "output/agents/best_latest.json", {"gen": gen})
 
             bw = history.bench_wr[-1]
             print(f"gen {gen:02d}  best_wr={history.best_wr[-1]:.3f}  mean_wr={history.mean_wr[-1]:.3f}"
