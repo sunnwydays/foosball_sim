@@ -1,6 +1,7 @@
 """scan_stalls.py -- find seeds where a point ends by possession limit
 (winner set but no goal event) or runs long with few hits."""
 
+import _path  # noqa: F401  (project root on sys.path)
 import config
 config.FPS = 30
 config.DT = 1.0 / 30

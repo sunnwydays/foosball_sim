@@ -17,6 +17,7 @@ FACE-SLIDE   The ball stays in contact with a passive player for several
 
 import sys
 
+import _path  # noqa: F401  (project root on sys.path)
 import play  # applies play.py's FPS to config before the sim is imported
 import config
 from play import run_point, TEAM_0, TEAM_1, TEAM_0_SKILL, TEAM_1_SKILL
