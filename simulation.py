@@ -536,9 +536,7 @@ def simulate_point(
                             intended_vel = _intended,
                             actual_vel   = None,
                         ))
-                    # NOTE: per approved plan, a whiff bounce also locks the opponent's
-                    # reaction timer. Revisit if this proves to give the whiffer an
-                    # unintended tempo advantage.
+                    # Whiff locks opportunities reaction timer
                     opp_team = 1 - team
                     team_states[opp_team].reaction_timer = config.REACTION_TIME
                     last_hit = (rod_idx, player_idx)
