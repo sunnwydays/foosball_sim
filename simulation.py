@@ -104,13 +104,20 @@ def _resolve_rigid_contact(
 
     Overlap detection uses the wide rotation-reach box (so swings can connect)
     and the bounce still resolves at the player slab like before, but the ball
-    is always ejected through the face on the side it CAME FROM this tick
+    is always ejected through the face on the side it CAME FROM this substep
     (never the far side) and its velocity is set to point away from that face,
-    so a bounce can never send the ball back into the player. A ball that is
-    outside the slab and already separating from the rod is left untouched.
+    so a bounce can never send the ball back into the player. A ball outside
+    the slab that has not tunnelled through it is left untouched.
+
+    The face (front x or side y) is chosen from where the ball was BEFORE the
+    substep (x_pre, y_pre), not from the current overlap: a fast ball entering
+    the front near a player's edge can end deeper in x than in y, which a
+    least-penetration test on the current position misreads as a side hit.
 
     reflect=True  : rigid bounce at CONTROLLED_SLOWDOWN (whiff / no swing armed)
-    reflect=False : absorbed bounce at PASSIVE_SLOWDOWN (rod mid-switch)
+    reflect=False : absorbed bounce at PASSIVE_SLOWDOWN (currently unused: a
+                    rod mid-switch is uncontrolled, so physics.step_ball's
+                    passive contact handles it instead)
 
     Returns True if the ball was modified, False if there was no real contact.
     """
@@ -123,20 +130,28 @@ def _resolve_rigid_contact(
     pen_x = ht - abs(dx)
     pen_y = hw - abs(dy)
 
-    if pen_x >= pen_y:
+    # Overlap one substep back in addition to current step to account for ball
+    # going through player during a step, causing more overlap on another side.
+    # Uses the rod's CURRENT position: rod movement during the substep is ignored.
+    pen_x_pre = ht - abs(x_pre - rod.x)
+    pen_y_pre = hw - abs(y_pre - py)
+
+    if pen_x_pre >= pen_y_pre:  # which face the ball came through (prev step)
         # Side face (y)
         exit_sign = 1.0 if y_pre - py > 0 else -1.0
         crossed   = (exit_sign > 0) != (dy > 0)
-        if not crossed and pen_y <= 0:
+        # Touching now? Must overlap in x, and in y unless it tunnelled across
+        if pen_x <= 0 or (not crossed and pen_y <= 0):
             return False
-        ball.y  = py + exit_sign * hw
+        ball.y  = py + exit_sign * hw   # reposition on appropriate face
         slow    = config.CONTROLLED_SLOWDOWN if reflect else 1.0
         ball.vy = exit_sign * abs(ball.vy) * slow
     else:
         # Front face (x)
         exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
         crossed   = (exit_sign > 0) != (dx > 0)
-        if not crossed and pen_x <= 0:
+        # Touching now? Must overlap in y, and in x unless it tunnelled through
+        if pen_y <= 0 or (not crossed and pen_x <= 0):
             return False
         ball.x = rod.x + exit_sign * ht
         if reflect:
@@ -536,7 +551,7 @@ def simulate_point(
                             intended_vel = _intended,
                             actual_vel   = None,
                         ))
-                    # Whiff locks opportunities reaction timer
+                    # Whiff locks opponent's reaction timer
                     opp_team = 1 - team
                     team_states[opp_team].reaction_timer = config.REACTION_TIME
                     last_hit = (rod_idx, player_idx)
