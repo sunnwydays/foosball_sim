@@ -31,7 +31,8 @@ face on SLIDE_TICKS ticks in a row -- the face-slide fingerprint.
 
 import argparse
 
-import play  # applies play.py's FPS to config before the sim is imported
+import _path  # noqa: F401  (project root on sys.path)
+import play # applies play.py's FPS to config before the sim is imported
 import config
 import physics
 from field import Field, BallState

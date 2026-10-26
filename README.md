@@ -29,9 +29,10 @@ pip install -r requirements.txt
 | `python playground.py` | Physics sandbox: one rod, one ball, sliders for every contact parameter |
 | `python main.py` | Run the Monte Carlo experiments (strategy matchups, 5000 points each) |
 | `python evolution.py` | Evolve a parameterized strategy with a genetic algorithm |
-| `python find_seeds.py [n]` | Scan seeds `0..n-1` for known physics bugs and count them |
-| `python debug_face_slide.py <seed>` | Replay a face slide in isolation and trace every contact substep |
-| `python scan_stalls.py` | Find points that end by possession limit, time out, or stall |
+| `python debug_scripts/find_seeds.py [n]` | Scan seeds `0..n-1` for known physics bugs and count them |
+| `python debug_scripts/debug_face_slide.py <seed>` | Replay a face slide in isolation and trace every contact substep |
+| `python debug_scripts/debug_snap.py <seed>` | Trace held-rod snaps (ball teleported onto a player's face) |
+| `python debug_scripts/scan_stalls.py` | Find points that end by possession limit, time out, or stall |
 | `python time_sim.py` | Benchmark simulation throughput (points per second) |
 
 ## How the simulation works
@@ -76,9 +77,11 @@ Rod rotation is modelled as an x-offset (`x_offset`, up to ±`ROD_X_REACH`). A r
 |---|---|
 | [play.py](play.py) | Run and replay one point. The main way to look at the game. |
 | [playground.py](playground.py) | Interactive single-rod physics sandbox. |
-| [find_seeds.py](find_seeds.py) | Bug detector: scans seeds and flags suspicious ball-player contact. |
-| [debug_face_slide.py](debug_face_slide.py) | Isolates and traces one flagged contact bug. |
-| [scan_stalls.py](scan_stalls.py) | Lists seeds where a point stalls, times out, or ends by possession limit. |
+| [debug_scripts/find_seeds.py](debug_scripts/find_seeds.py) | Bug detector: scans seeds and flags suspicious ball-player contact. |
+| [debug_scripts/debug_face_slide.py](debug_scripts/debug_face_slide.py) | Isolates and traces one flagged contact bug. |
+| [debug_scripts/debug_snap.py](debug_scripts/debug_snap.py) | Traces held-rod snaps, from a hand-built contact or a seed replay. |
+| [debug_scripts/scan_stalls.py](debug_scripts/scan_stalls.py) | Lists seeds where a point stalls, times out, or ends by possession limit. |
+| [debug_scripts/_path.py](debug_scripts/_path.py) | Puts the project root on `sys.path`; every debug script imports it first. |
 | [time_sim.py](time_sim.py) | Measures throughput, single-core and in parallel. |
 
 ### Strategies
@@ -138,22 +141,23 @@ Checkpoints go to `output/evolution_history.json` and `output/agents/best_latest
 ### find_seeds.py: bug detector
 
 ```bash
-python find_seeds.py 300
+python debug_scripts/find_seeds.py 300
 ```
 
 Plays seeds `0..n-1` with `play.py`'s settings and prints every suspicious contact, then a totals line:
 
 - **BACK-BOUNCE:** a held rod rigid-bounces a ball that was moving toward the opponent's goal, sending it back toward its own goal (the player was hit from behind).
 - **FACE-SLIDE:** the ball stays on a passive player's face for several ticks in a row and the owning team concedes within a second.
+- **SNAP:** a held rod rigid-bounces a ball that was inside the wide reach box but not touching the player, teleporting it onto the face. Detected by wrapping `simulation._resolve_rigid_contact`. The totals line also reports the HIT count, as a regression check.
 
 Every printed seed replays exactly with `python play.py <seed>`. The totals line is the before/after number for any physics fix.
 
 ### debug_face_slide.py: isolate and trace
 
 ```bash
-python debug_face_slide.py 136                  # first face slide in seed 136
-python debug_face_slide.py 136 --tick 26        # start from a chosen tick
-python debug_face_slide.py --manual --xo -3 --dy 1 --vx 150
+python debug_scripts/debug_face_slide.py 136                  # first face slide in seed 136
+python debug_scripts/debug_face_slide.py 136 --tick 26        # start from a chosen tick
+python debug_scripts/debug_face_slide.py --manual --xo -3 --dy 1 --vx 150
 ```
 
 For a seed, it:
@@ -165,9 +169,19 @@ For a seed, it:
 
 It wraps `physics._step_ball_inner` at runtime, so edits to `physics.py` show up in the trace immediately. `--manual` builds a shot at the T1 goalie with a chosen tilt, offset, and speed instead of replaying a seed.
 
+### debug_snap.py: trace held-rod snaps
+
+```bash
+python debug_scripts/debug_snap.py --manual --gap 2     # ball 2 cm from the face of the T0 mid rod
+python debug_scripts/debug_snap.py 291 --t1 3           # snaps in seed 291, first 3 s
+python debug_scripts/debug_snap.py 291 --all            # every rigid contact, not just snaps
+```
+
+It wraps `simulation._resolve_rigid_contact` at runtime and prints one line per call that moved the ball: rod, penetration depth (`pen_x`, `pen_y`; at or below 0 means the ball was not touching), ball x before and after, vx before and after, and a `SNAP` flag. `--manual` ends with a PASS/FAIL verdict. It contains `TODO(you)` markers for the exploration steps.
+
 ### scan_stalls.py and time_sim.py
 
-`scan_stalls.py` plays 300 seeds of HardOffense vs TiltAndGap. It prints points that ended by possession limit, timed out, or ran over 6 s with few hits. `time_sim.py` reports points per second for several matchups on one core and for a parallel round-robin generation. Run it before and after performance changes.
+`debug_scripts/scan_stalls.py` plays 300 seeds of HardOffense vs TiltAndGap. It prints points that ended by possession limit, timed out, or ran over 6 s with few hits. `time_sim.py` reports points per second for several matchups on one core and for a parallel round-robin generation. Run it before and after performance changes.
 
 ## Debugging workflow
 

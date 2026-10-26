@@ -127,7 +127,7 @@ def _resolve_rigid_contact(
         # Side face (y)
         exit_sign = 1.0 if y_pre - py > 0 else -1.0
         crossed   = (exit_sign > 0) != (dy > 0)
-        if not crossed and pen_y <= 0 and ball.vy * exit_sign > 0:
+        if not crossed and pen_y <= 0:
             return False
         ball.y  = py + exit_sign * hw
         slow    = config.CONTROLLED_SLOWDOWN if reflect else 1.0
@@ -136,7 +136,7 @@ def _resolve_rigid_contact(
         # Front face (x)
         exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
         crossed   = (exit_sign > 0) != (dx > 0)
-        if not crossed and pen_x <= 0 and ball.vx * exit_sign > 0:
+        if not crossed and pen_x <= 0:
             return False
         ball.x = rod.x + exit_sign * ht
         if reflect:
@@ -536,9 +536,7 @@ def simulate_point(
                             intended_vel = _intended,
                             actual_vel   = None,
                         ))
-                    # NOTE: per approved plan, a whiff bounce also locks the opponent's
-                    # reaction timer. Revisit if this proves to give the whiffer an
-                    # unintended tempo advantage.
+                    # Whiff locks opportunities reaction timer
                     opp_team = 1 - team
                     team_states[opp_team].reaction_timer = config.REACTION_TIME
                     last_hit = (rod_idx, player_idx)
