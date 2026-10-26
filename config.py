@@ -96,8 +96,9 @@ MAX_MOVEMENT_STD = 1.1*PLAYER_WIDTH   # cm — at movement_control=0 (sloppy pos
 
 # ---------------------------------------------------------------------------
 # Passive player contact — ball hitting an uncontrolled rod's player
+# (includes a rod mid-switch: it stays uncontrolled until SWITCH_DELAY ends)
 # ---------------------------------------------------------------------------
-PASSIVE_SLOWDOWN    = 0.8    # vx multiplier on contact (0 = full stop, 1 = no effect)
+PASSIVE_SLOWDOWN    = 0.5   # vx multiplier on contact (0 = full stop, 1 = no effect)
 CONTROLLED_SLOWDOWN = 0.6    # speed multiplier on idle controlled-rod bounce / whiff
 PASSIVE_MIN_SPEED   = 5.0   # cm/s — below this, vx zeroes out on contact
 SPEED_PUSHBACK      = 0.005  # x_offset pushback per unit of ball speed
