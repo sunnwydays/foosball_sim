@@ -320,33 +320,45 @@ def _make_pool():
     return ProcessPoolExecutor(N_WORKERS if N_WORKERS > 0 else None)  # None -> cpu_count()
 
 def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]:
+    # half the points on each side, so fitness doesn't depend on which team
+    # an agent happens to play (the lower population index used to always be team 0)
     g0, g1 = args
-    result = run_monte_carlo(
+    half = RR_POINTS // 2
+    a = run_monte_carlo(
         Field(),
         {0: ParameterizedStrategy(g0), 1: ParameterizedStrategy(g1)},
-        n_simulations=RR_POINTS,
+        n_simulations=half,
     )
-    return result.team0_wins, result.team1_wins, result.n_simulations
+    b = run_monte_carlo(
+        Field(),
+        {0: ParameterizedStrategy(g1), 1: ParameterizedStrategy(g0)},
+        n_simulations=RR_POINTS - half,
+    )
+    return (a.team0_wins + b.team1_wins, a.team1_wins + b.team0_wins,
+            a.n_simulations + b.n_simulations)
 
-def _bench_worker(args: tuple[np.ndarray, str, int]) -> tuple[int, int, int]:
-    genome, name, n_points = args
+def _bench_worker(args: tuple[np.ndarray, str, int, int]) -> tuple[int, int, int]:
+    """Genome on `side` vs a baseline: (genome wins, baseline wins, points)."""
+    genome, name, n_points, side = args
     result = run_monte_carlo(
         Field(),
-        {0: ParameterizedStrategy(genome), 1: BASELINES[name]()},
+        {side: ParameterizedStrategy(genome), 1 - side: BASELINES[name]()},
         n_simulations=n_points,
     )
-    return result.team0_wins, result.team1_wins, result.n_simulations
+    if side == 0:
+        return result.team0_wins, result.team1_wins, result.n_simulations
+    return result.team1_wins, result.team0_wins, result.n_simulations
 
 def benchmark(genome: Genome, n_points: int, pool) -> dict[str, tuple[int, int, int]]:
-    """Play genome against every baseline: {name: (wins, losses, points)}."""
+    """Play genome against every baseline, half on each side: {name: (wins, losses, points)}."""
     # split each baseline into chunks so the work spreads across all workers
-    n_chunks = 4
+    n_chunks = 4  # even, so both sides get the same number of chunks
     chunk = math.ceil(n_points / n_chunks)
-    args = [(genome, name, chunk) for name in BASELINES for _ in range(n_chunks)]
+    args = [(genome, name, chunk, i % 2) for name in BASELINES for i in range(n_chunks)]
     results = list(pool.map(_bench_worker, args))
 
     out = {name: (0, 0, 0) for name in BASELINES}
-    for (_, name, _), (w, l, g) in zip(args, results):
+    for (_, name, _, _), (w, l, g) in zip(args, results):
         w0, l0, g0 = out[name]
         out[name] = (w0 + w, l0 + l, g0 + g)
     return out
