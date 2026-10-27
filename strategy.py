@@ -624,7 +624,10 @@ class SmackBall(Strategy):
         targets = {}
         for rod_idx, rod in controlled_rods:
             target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
-            targets[rod_idx] = (target_y, 0.0, False)
+
+            # Flip rod up to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
+            targets[rod_idx] = (target_y, 0.0, up)
         return targets
 
     def choose_hit(
@@ -658,7 +661,10 @@ class AimAtGap(Strategy):
         targets = {}
         for rod_idx, rod in controlled_rods:
             target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
-            targets[rod_idx] = (target_y, 0.0, False)
+
+            # Flip rod up to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
+            targets[rod_idx] = (target_y, 0.0, up)
         return targets
 
     def choose_hit(
@@ -757,7 +763,10 @@ class DefensiveWall(Strategy):
         targets = {}
         for rod_idx, rod in controlled_rods:
             target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
-            targets[rod_idx] = (target_y, 0.0, False)
+
+            # Flip rod up to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
+            targets[rod_idx] = (target_y, 0.0, up)
         return targets
 
     def choose_passive(
@@ -873,7 +882,10 @@ class ReactiveBlock(Strategy):
         targets = {}
         for rod_idx, rod in controlled_rods:
             target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
-            targets[rod_idx] = (target_y, 0.0, False)
+
+            # Flip rod up to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
+            targets[rod_idx] = (target_y, 0.0, up)
         return targets
 
     def choose_passive(

@@ -167,7 +167,8 @@ class ParameterizedStrategy(Strategy):
             # x_offset: defensive_activity=1 → max forward lean, 0.5 → neutral, 0 → lean back
             x_offset = (self.defensive_activity - 0.5) * 2 * config.ROD_X_REACH * attack_dir
 
-            up = False  # never lift a rod you're actively controlling
+            # Flip rod up to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
 
             targets[rod_idx] = (target_y_offset, x_offset, up)
 
