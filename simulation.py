@@ -189,11 +189,20 @@ def _resolve_rigid_contact(
         return False
     axis, exit_sign = face
     if axis == 'y':
-        hw = rod.width / 2 + config.BALL_RADIUS
-        ball.y  = rod.player_positions[player_idx] + exit_sign * hw   # reposition on appropriate face
-        slow    = config.CONTROLLED_SLOWDOWN if reflect else 1.0
-        ball.vy = exit_sign * abs(ball.vy) * slow
-    else:
+        r      = config.BALL_RADIUS
+        hw     = rod.width / 2 + r
+        side_y = rod.player_positions[player_idx] + exit_sign * hw
+        if r <= side_y <= rod.field_width - r:
+            ball.y  = side_y   # reposition on appropriate face
+            slow    = config.CONTROLLED_SLOWDOWN if reflect else 1.0
+            ball.vy = exit_sign * abs(ball.vy) * slow
+            return True
+        # The gap between the man and the rail is narrower than the ball, so it
+        # can't leave out the side: squeeze it out the front or back instead
+        ball.y    = max(r, min(rod.field_width - r, ball.y))
+        exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
+        axis      = 'x'
+    if axis == 'x':
         ht = rod.thickness / 2 + config.BALL_RADIUS
         ball.x = rod.x + exit_sign * ht
         if reflect:
