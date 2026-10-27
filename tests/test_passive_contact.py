@@ -107,3 +107,22 @@ def test_side_face_keeps_vy_pointing_away(field, rod, ysign):
     assert ball.contacted_player
     assert ball.vy == pytest.approx(ysign * 5.0)
     assert ball.y == pytest.approx(rod.player_positions[P] + ysign * half_width(rod))
+
+
+@pytest.mark.parametrize("ysign", [1, -1], ids=["+y", "-y"])
+def test_side_face_push_stays_off_rail(field, rod, ysign):
+    # Rail wedge: a free rod left slid all the way over drops onto a ball
+    # against the rail, level with its outer man. The man-to-rail gap (2.5 cm)
+    # is narrower than the ball (3.5 cm), and the side-face push put the ball
+    # centre inside the wall. It now leaves out the front or back.
+    lo, hi = rod.slide_range
+    rod.set_offset(hi if ysign > 0 else lo)
+    p = rod.n_players - 1 if ysign > 0 else 0
+    ball = ball_at(rod, p, gap=-half_thickness(rod), side=1)
+    ball.y = field.width - R if ysign > 0 else R
+    rod_x = rod.x                                 # before pushback moves the rod
+    step_ball(ball, field, 0.01, friction=0.0, ball_radius=R)
+
+    assert ball.contacted_player
+    assert R <= ball.y <= field.width - R
+    assert abs(ball.x - rod_x) == pytest.approx(half_thickness(rod))   # out the front/back

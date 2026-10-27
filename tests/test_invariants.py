@@ -31,12 +31,14 @@ MATCHUPS = {
 }
 HIT_TOLERANCE = 0.10                # HIT count may drift this far either way
 
-# Recorded on main 1a2b6a6 (passive-face + whiff rework merged), 2026-10-26,
-# FPS=30, seeds 0..199, settings above. SmackBall and DefensiveWall never lift
-# a held rod for a teammate's shot, hence their high BACK-BOUNCE.
+# Recorded on 8d070fc + the rail-wedge fix (fix/rail-wedge), 2026-10-26, FPS=30,
+# seeds 0..199, settings above. SmackBall and DefensiveWall never lift a held
+# rod for a teammate's shot, hence their high BACK-BOUNCE. The rail fix added
+# 11 of those: balls hitting a man from behind next to the rail used to slip
+# through the man-to-rail gap and now bounce back (was 17/1540, HIT 1741/1959).
 BASELINES = {
-    "HardOffense-TiltAndGap":  {"BACK-BOUNCE": 17,   "FACE-SLIDE": 0, "HIT": 1741},
-    "SmackBall-DefensiveWall": {"BACK-BOUNCE": 1540, "FACE-SLIDE": 0, "HIT": 1959},
+    "HardOffense-TiltAndGap":  {"BACK-BOUNCE": 18,   "FACE-SLIDE": 0, "HIT": 1612},
+    "SmackBall-DefensiveWall": {"BACK-BOUNCE": 1557, "FACE-SLIDE": 0, "HIT": 2022},
 }
 
 
@@ -90,12 +92,9 @@ def test_ball_stays_within_ends(sweep):
                 f"seed {seed} t={f.time:.2f}"
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "Known bug: a held man's side face pushes the ball to py +- (PLAYER_WIDTH/2 "
-    "+ BALL_RADIUS) with no rail check. The outermost man can sit 3.75 cm from "
-    "the rail, so the ball centre lands at 0.75 cm, inside the wall (min 1.75). "
-    "See test_rigid_contact.py::test_side_face_push_stays_off_rail."))
 def test_ball_stays_within_rails(sweep):
+    # Caught the rail wedge: a side-face push next to the rail put the ball
+    # centre inside the wall. See test_side_face_push_stays_off_rail.
     _, points = sweep
     r = config.BALL_RADIUS
     for seed, field, result, _ in points:

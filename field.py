@@ -76,6 +76,7 @@ class Rod:
         self.width      = width
         self.thickness   = thickness
         self.rod_x_reach = rod_x_reach
+        self.field_width = field_width
 
         # --- Mutable positional state ---
         self.y_offset    = 0.0   # current y slide

@@ -95,13 +95,12 @@ def test_side_approach_is_side_face(rod, ysign):
     assert ball.vy == pytest.approx(ysign * 40.0 * config.CONTROLLED_SLOWDOWN)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "Known bug: the side-face push has no rail check. With the rod slid all the "
-    "way over, the gap between the outer man and the rail (2.5 cm) is narrower "
-    "than the ball (3.5 cm), so the push puts the ball centre inside the wall."))
 @pytest.mark.parametrize("ysign", [1, -1], ids=["+y", "-y"])
 def test_side_face_push_stays_off_rail(field, rod, ysign):
-    # Slide the rod so its outermost man on the ysign side is as close to that
+    # Rail wedge: with the rod slid all the way over, the gap between the outer
+    # man and the rail (2.5 cm) is narrower than the ball (3.5 cm), and the
+    # side-face push put the ball centre inside the wall. It now leaves out the
+    # front or back. Slide the outermost man on the ysign side as close to that
     # rail as it can get, then bring the ball in from the rail side.
     lo, hi = rod.slide_range
     rod.set_offset(hi if ysign > 0 else lo)
@@ -115,6 +114,7 @@ def test_side_face_push_stays_off_rail(field, rod, ysign):
     assert _resolve_rigid_contact(ball, rod, p, ball.x, y_pre, reflect=True)
     r = config.BALL_RADIUS
     assert r <= ball.y <= field.width - r
+    assert abs(ball.x - rod.x) == pytest.approx(half_thickness(rod))   # out the front/back
 
 
 @pytest.mark.parametrize("ysign", [1, -1], ids=["+y", "-y"])

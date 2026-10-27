@@ -185,11 +185,15 @@ def _step_ball_inner(
                 pen_x_pre, pen_y_pre = ht - abs(dx), hw - abs(dy)
 
             # --- Side face (y): simple bounce ---
+            # Unless the man is so close to the rail that the ball can't fit
+            # between them: then it can only leave out the front or back.
             if pen_x_pre >= pen_y_pre:
                 exit_sign = 1.0 if ref_y - py > 0 else -1.0
-                ball.y = py + exit_sign * hw
-                ball.vy = exit_sign * abs(ball.vy)
-                continue
+                side_y = py + exit_sign * hw
+                if r <= side_y <= field.width - r:
+                    ball.y = side_y
+                    ball.vy = exit_sign * abs(ball.vy)
+                    continue
 
             # --- Front face (x): passive contact model ---
             exit_sign = 1.0 if ref_x - rod.x > 0 else -1.0
