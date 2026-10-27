@@ -206,6 +206,32 @@ class ParameterizedStrategy(Strategy):
         
         return rod_positions
     
+    def _aim_target(
+        self, choice: int, rod: Rod, ball: BallState, field: Field,
+    ) -> tuple[float, float]:
+        """Aim point for one primitive. 0 gap, 1 off wall, 2 off player,
+        3 pass forward, 4 pass back, 5 pass side. Shared by the GA's sampled
+        choice and PPOStrategy's learned one, so both mean the same thing."""
+        goal = field.goal_for_attacker(rod.team)
+        aim_x, aim_y = goal.x, (goal.y_min + goal.y_max) / 2
+        if choice == 0:
+            return self._find_gap_target(rod, ball, field)
+        if choice == 1:
+            return _best_wall_shot(rod, ball, field, aim_x, aim_y)
+        if choice == 2:
+            if rod.team == 0:
+                opp_passive = [r for r in field.rods if r.team != rod.team and r.x > rod.x and not r.controlled]
+            else:
+                opp_passive = [r for r in field.rods if r.team != rod.team and r.x < rod.x and not r.controlled]
+            if opp_passive:
+                return _best_player_deflection(rod, ball, field, aim_x, aim_y)
+            return self._find_gap_target(rod, ball, field)
+        if choice == 3:
+            return self._aim_forward(rod, ball, field)
+        if choice == 4:
+            return self._aim_back(rod, ball, field)
+        return self._aim_side(rod, ball, field)
+
     def choose_hit(
         self,
         rod: Rod,
@@ -221,7 +247,6 @@ class ParameterizedStrategy(Strategy):
         rod.anticipation      = self.anticipation
 
         team = rod.team
-        goal = field.goal_for_attacker(team)
         intended_speed = config.HIT_SPEED * (0.5 + 0.5 * self.shot_speed)
 
         if np.random.random() < self.shot_rate:
@@ -229,23 +254,7 @@ class ParameterizedStrategy(Strategy):
             shot_weights = np.array([self.aim_gap, self.aim_wall, self.aim_player])
             shot_weights /= shot_weights.sum()
             shot_choice = np.random.choice(3, p=shot_weights)
-
-            aim_x = goal.x
-            aim_y = (goal.y_min + goal.y_max) / 2
-            if shot_choice == 0:
-                aim_x, aim_y = self._find_gap_target(rod, ball, field)
-            elif shot_choice == 1:
-                aim_x, aim_y = _best_wall_shot(rod, ball, field, aim_x, aim_y)
-            else:
-                if team == 0:
-                    opp_passive = [r for r in field.rods if r.team != team and r.x > rod.x and not r.controlled]
-                else:
-                    opp_passive = [r for r in field.rods if r.team != team and r.x < rod.x and not r.controlled]
-
-                if opp_passive:
-                    aim_x, aim_y = _best_player_deflection(rod, ball, field, aim_x, aim_y)
-                else:
-                    aim_x, aim_y = self._find_gap_target(rod, ball, field)
+            aim_x, aim_y = self._aim_target(shot_choice, rod, ball, field)
         else:
             # pass
             # Suppress pass_back near opponent goal: retreating from scoring position has no value
@@ -273,12 +282,7 @@ class ParameterizedStrategy(Strategy):
             else:
                 pass_weights /= total
                 pass_choice = np.random.choice(3, p=pass_weights)
-                if pass_choice == 0:
-                    aim_x, aim_y = self._aim_forward(rod, ball, field)
-                elif pass_choice == 1:
-                    aim_x, aim_y = self._aim_back(rod, ball, field)
-                else:
-                    aim_x, aim_y = self._aim_side(rod, ball, field)
+                aim_x, aim_y = self._aim_target(3 + pass_choice, rod, ball, field)
 
         return self._commit_swing(rod, ball, field, t, aim_x, aim_y, intended_speed)
 
