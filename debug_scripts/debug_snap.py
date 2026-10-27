@@ -53,7 +53,7 @@ import simulation
 from field import Field, BallState
 from physics import find_overlapping_players
 from debug_face_slide import rod_labels
-from find_seeds import SNAP_TOL
+from detectors import SNAP_TOL
 from play import run_point, TEAM_0, TEAM_1, TEAM_0_SKILL, TEAM_1_SKILL
 
 

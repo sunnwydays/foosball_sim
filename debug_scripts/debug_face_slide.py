@@ -7,7 +7,7 @@ Usage
 
 Replay mode (SEED)
 ------------------
-1. CAPTURE  Run the point, find its first FACE-SLIDE (find_seeds' detector)
+1. CAPTURE  Run the point, find its first FACE-SLIDE (detectors.py's detector)
             and print the recorded frames around it.
 2. ISOLATE  Copy the ball and the sliding rod from the frame just before the
             slide (or --tick N) into a fresh Field. Every other rod is lifted,
@@ -36,7 +36,7 @@ import play # applies play.py's FPS to config before the sim is imported
 import config
 import physics
 from field import Field, BallState
-from find_seeds import face_slides, SLIDE_TICKS
+from detectors import face_slides, SLIDE_TICKS
 from play import run_point, build_strategy, TEAM_0, TEAM_1, TEAM_0_SKILL, TEAM_1_SKILL
 
 ROLE_NAMES = ["goa", "def", "mid", "fwd"]
