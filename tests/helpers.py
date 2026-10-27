@@ -135,9 +135,10 @@ def up_once_moving(ball: BallState) -> Pos:
     return (0.0, 0.0, ball.speed > 0)
 
 
-def run_scene(t0: Strategy, t1: Strategy, kickoff: int = 0) -> tuple[Field, PointResult]:
+def run_scene(t0: Strategy, t1: Strategy, kickoff: int = 0,
+              rod_x_reach: float = config.ROD_X_REACH) -> tuple[Field, PointResult]:
     """Play one recorded, logged point between two scripted teams."""
-    field = Field()
+    field = Field(rod_x_reach=rod_x_reach)
     result = simulate_point(field, {0: t0, 1: t1}, kickoff_team=kickoff,
                             record=True, seed=0, collect_action_log=True)
     return field, result

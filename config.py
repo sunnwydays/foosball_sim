@@ -55,8 +55,10 @@ PLAYER_THICKNESS = 1.5   # cm — thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
-ROD_X_REACH = 4.0      # cm — max x-offset from rod origin (3.0 left a strip
-                       # between adjacent rods' reach boxes where the ball went dead)
+ROD_X_REACH = 4.8      # cm — max x-offset from rod origin; adjacent rods' reach
+                       # boxes (ROD_X_REACH + thickness/2 + ball radius each) meet
+                       # at the 14.6 cm rod spacing. Lower values leave a strip
+                       # between rods where a stopped ball is a dead ball.
 
 # ---------------------------------------------------------------------------
 # Time-stepped simulation

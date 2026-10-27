@@ -1,9 +1,17 @@
 """Dead-ball and possession-stall rules."""
 
-from field import BallState
+import numpy as np
+
+import config
+from field import BallState, Field
 from simulation import _teams_with_reach
 from helpers import (T0_MID, T1_GOA, ScriptedStrategy, lift_others, run_scene,
                      swing, up_once_moving)
+
+# The default reach closes every gap between rods, so a dead ball can't happen
+# on the default table. The dead-ball tests use the old 4.0 cm reach, which
+# leaves a 1.6 cm strip between the mid rods (59.2 to 60.8 cm).
+STRIP_REACH = 4.0
 
 
 def test_lifted_rod_counts_as_reach(field):
@@ -14,7 +22,8 @@ def test_lifted_rod_counts_as_reach(field):
     assert _teams_with_reach(ball, field) == {0}
 
 
-def test_reach_is_x_only(field):
+def test_reach_is_x_only():
+    field = Field(rod_x_reach=STRIP_REACH)
     rod = field.rods[T0_MID]
     reach = rod.rod_x_reach + rod.thickness / 2 + 1.75
     assert _teams_with_reach(BallState(x=rod._base_x + reach - 0.01, y=1.0), field) == {0}
@@ -22,11 +31,19 @@ def test_reach_is_x_only(field):
     assert _teams_with_reach(BallState(x=60.0, y=34.0), field) == set()
 
 
+def test_default_reach_leaves_no_dead_strip(field):
+    # A stopped ball anywhere on the table is in some rod's reach, so the
+    # point can't end as a dead ball (16% of SmackBall points did at 4.0 cm).
+    r = config.BALL_RADIUS
+    for x in np.arange(r, field.depth - r, 0.05):
+        assert _teams_with_reach(BallState(x=float(x), y=34.0), field), f"x={x:.2f}"
+
+
 def creep(vx):
     """T0 nudges the ball off its mid rod, then lifts the rod."""
     t0 = ScriptedStrategy(hands={T0_MID}, pos={T0_MID: up_once_moving},
                           swings={T0_MID: swing(vx, 0.0)})
-    return run_scene(t0, ScriptedStrategy(hands={T1_GOA}))
+    return run_scene(t0, ScriptedStrategy(hands={T1_GOA}), rod_x_reach=STRIP_REACH)
 
 
 def test_ball_stopped_out_of_reach_is_dead(fps):
