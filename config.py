@@ -55,7 +55,8 @@ PLAYER_THICKNESS = 1.5   # cm — thickness of a player figure (x direction)
 
 # Rod rotation modelled as x-slide: max distance the rod center can move
 # from its default x origin (player figure sweep distance)
-ROD_X_REACH = 3.0      # cm — max x-offset from rod origin
+ROD_X_REACH = 4.0      # cm — max x-offset from rod origin (3.0 left a strip
+                       # between adjacent rods' reach boxes where the ball went dead)
 
 # ---------------------------------------------------------------------------
 # Time-stepped simulation
@@ -74,7 +75,7 @@ STOP_THRESHOLD = 3.0      # cm/s — below this, ball counts as stopped
 BALL_MAX_SPEED = 260.0    # cm/s — absolute cap on ball speed
 HIT_SPEED      = 140.0    # cm/s — default intended shot speed
 CONTACT_STEP   = 4.0      # cm — max ball travel between held-rod contact checks
-                          # (must stay below the 11 cm reach-box depth)
+                          # (must stay below the 13 cm reach-box depth)
 
 # ---------------------------------------------------------------------------
 # Shot noise — maps accuracy/power_consistency (0-1) to distribution std devs

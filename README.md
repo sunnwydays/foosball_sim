@@ -33,6 +33,7 @@ pip install -r requirements.txt
 | `python debug_scripts/debug_face_slide.py <seed>` | Replay a face slide in isolation and trace every contact substep |
 | `python debug_scripts/debug_snap.py <seed>` | Trace held-rod snaps (ball teleported onto a player's face) |
 | `python debug_scripts/scan_stalls.py` | Find points that end by possession limit, time out, or stall |
+| `python debug_scripts/tune.py [n] [NAME=VALUE ...]` | Realism metrics (whiff rate by ball speed, own goals, dead balls, point length) against target bands; `--sweep` compares values |
 | `python time_sim.py` | Benchmark simulation throughput (points per second) |
 
 ## How the simulation works
@@ -81,6 +82,7 @@ Rod rotation is modelled as an x-offset (`x_offset`, up to ±`ROD_X_REACH`). A r
 | [debug_scripts/debug_face_slide.py](debug_scripts/debug_face_slide.py) | Isolates and traces one flagged contact bug. |
 | [debug_scripts/debug_snap.py](debug_scripts/debug_snap.py) | Traces held-rod snaps, from a hand-built contact or a seed replay. |
 | [debug_scripts/scan_stalls.py](debug_scripts/scan_stalls.py) | Lists seeds where a point stalls, times out, or ends by possession limit. |
+| [debug_scripts/tune.py](debug_scripts/tune.py) | Tuning harness: realism metrics with config overrides, and parallel parameter sweeps. |
 | [debug_scripts/_path.py](debug_scripts/_path.py) | Puts the project root on `sys.path`; every debug script imports it first. |
 | [time_sim.py](time_sim.py) | Measures throughput, single-core and in parallel. |
 
@@ -178,6 +180,16 @@ python debug_scripts/debug_snap.py 291 --all            # every rigid contact, n
 ```
 
 It wraps `simulation._resolve_rigid_contact` at runtime and prints one line per call that moved the ball: rod, penetration depth (`pen_x`, `pen_y`; at or below 0 means the ball was not touching), ball x before and after, vx before and after, and a `SNAP` flag. `--manual` ends with a PASS/FAIL verdict. It contains `TODO(you)` markers for the exploration steps.
+
+### tune.py: tuning harness
+
+```bash
+python debug_scripts/tune.py 600                                  # current config
+python debug_scripts/tune.py 300 SWING_RECOVERY=0.15              # try an override
+python debug_scripts/tune.py --sweep ROD_X_REACH=3,4,4.5 300      # compare values in parallel
+```
+
+It plays play.py's matchup with kickoff alternating by seed. It prints each metric next to its target band from `TARGETS` at the top of the file, which you can edit. Overrides are applied before the sim modules import, because some constants are bound as default arguments at import time. `--sweep` runs one subprocess per value in parallel and prints a table with off-target cells starred. The seeds are the same for every value, so the differences come from the parameter, not from RNG luck.
 
 ### scan_stalls.py and time_sim.py
 
