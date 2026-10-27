@@ -110,6 +110,13 @@ def _contact_face(
     y_pre), not from the current overlap: a fast ball entering the front near
     a player's edge can end deeper in x than in y, which a least-penetration
     test on the current position misreads as a side hit.
+
+    Rods move once per tick, before the ball's substeps, so the rod is normally
+    taken where it is now: a goalie that slid in front of an incoming ball was
+    there first, and blocks it with its front. Only when the ball was already
+    inside the slab at the start of the substep did the rod move onto it; then
+    the rod's earlier position (rod.x_pre, rod.y_offset_pre) tells which face
+    reached the ball, e.g. a rod sliding sideways onto a ball level with it.
     """
     r  = config.BALL_RADIUS
     py = rod.player_positions[player_idx]
@@ -122,21 +129,29 @@ def _contact_face(
 
     # Overlap one substep back in addition to current step to account for ball
     # going through player during a step, causing more overlap on another side.
-    # Uses the rod's CURRENT position: rod movement during the substep is ignored.
-    pen_x_pre = ht - abs(x_pre - rod.x)
-    pen_y_pre = hw - abs(y_pre - py)
+    rx_pre, py_pre = rod.x, py
+    pen_x_pre = ht - abs(x_pre - rx_pre)
+    pen_y_pre = hw - abs(y_pre - py_pre)
+    if pen_x_pre > 0 and pen_y_pre > 0 and rod.x_pre is not None:
+        # Ball started inside the slab: the rod moved onto it this tick
+        rx_pre = rod.x_pre
+        py_pre = py - rod.y_offset + rod.y_offset_pre
+        pen_x_pre = ht - abs(x_pre - rx_pre)
+        pen_y_pre = hw - abs(y_pre - py_pre)
 
     if pen_x_pre >= pen_y_pre:  # which face the ball came through (prev step)
         # Side face (y)
-        exit_sign = 1.0 if y_pre - py > 0 else -1.0
-        crossed   = (exit_sign > 0) != (dy > 0)
+        exit_sign = 1.0 if y_pre - py_pre > 0 else -1.0
+        # Tunnelled: started outside the slab and is now past its centre. A ball
+        # that was already inside (under a lifted man) is not tunnelling.
+        crossed   = pen_y_pre <= 0 and (exit_sign > 0) != (dy > 0)
         # Touching now? Must overlap in x, and in y unless it tunnelled across
         if pen_x <= 0 or (not crossed and pen_y <= 0):
             return None
         return 'y', exit_sign
     # Front face (x)
-    exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
-    crossed   = (exit_sign > 0) != (dx > 0)
+    exit_sign = 1.0 if x_pre - rx_pre > 0 else -1.0
+    crossed   = pen_x_pre <= 0 and (exit_sign > 0) != (dx > 0)
     # Touching now? Must overlap in y, and in x unless it tunnelled through
     if pen_y <= 0 or (not crossed and pen_x <= 0):
         return None
@@ -335,6 +350,7 @@ def simulate_point(
         for rod_idx, rod in enumerate(field.rods):
             if rod.pending_swing is not None and game_time > rod.pending_swing.over_at:
                 _expire_swing(rod_idx, rod)
+            rod.mark_pre()   # before strategy and movement move it this tick
 
         # --------------------------------------------------------------
         # 2. Strategy decisions: hands + targets + up/down
@@ -627,6 +643,11 @@ def simulate_point(
                     team_states[opp_team].reaction_timer = config.REACTION_TIME
                     last_hit = (rod_idx, player_idx)
                     break
+
+            # Rods only move once per tick (above), so later substeps start
+            # where this one ended
+            for rod in field.rods:
+                rod.mark_pre()
 
             if ball_result == 'stopped':
                 break

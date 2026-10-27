@@ -82,6 +82,12 @@ class Rod:
         self.x_offset    = 0.0   # current x slide (rotation)
         self.up          = False # can balls pass through the rod?
 
+        # Position at the start of the current ball substep (set by the sim via
+        # mark_pre), so contact can tell the rod moving onto the ball from the
+        # ball moving into the rod. None = not recorded: use the current one.
+        self.x_pre:        Optional[float] = None
+        self.y_offset_pre: Optional[float] = None
+
         # --- Continuous movement state ---
         self.target_y           = 0.0   # actual (noisy) target y_offset
         self._intended_target_y = 0.0   # intended target before control noise
@@ -186,6 +192,11 @@ class Rod:
         """Slide rod to x `offset`, clamping within rotation bounds."""
         self.x_offset = max(self._x_slide_min, min(self._x_slide_max, offset))
 
+    def mark_pre(self) -> None:
+        """Record the current position as the start of the next ball substep."""
+        self.x_pre        = self.x
+        self.y_offset_pre = self.y_offset
+
     def player_in_box(self, x: float, y: float, ball_radius: float = 0.0) -> Optional[int]:
         """
         Return the index of the player whose 2D bounding box covers (x, y),
@@ -230,6 +241,8 @@ class Rod:
         """Reset all mutable state to defaults."""
         self.y_offset           = 0.0
         self.x_offset           = 0.0
+        self.x_pre              = None
+        self.y_offset_pre       = None
         self.target_y           = 0.0
         self._intended_target_y = 0.0
         self.vy                 = 0.0
