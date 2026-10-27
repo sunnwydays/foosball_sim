@@ -118,7 +118,7 @@ MOVEMENT_SPEED = 150.0     # cm/s — max rod slide speed toward target_y
 # Timing parameters (defaults — can be overridden per team)
 # ---------------------------------------------------------------------------
 REACTION_TIME  = 0.20     # seconds — delay before opponent can change direction after a hit
-SWITCH_DELAY   = 0.30     # seconds — delay when switching a hand to a new rod
+SWITCH_DELAY   = 0.25     # seconds — delay when switching a hand to a new rod
 
 # ---------------------------------------------------------------------------
 # Swing commitment — proactive hit timing (see swing-window plan)
