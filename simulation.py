@@ -285,7 +285,7 @@ def simulate_point(
     # Double-hit tracking: (rod_idx, player_idx) of last hit
     last_hit:      Optional[tuple[int, int]]    = None
     last_hit_pos:  Optional[tuple[float, float]] = None  # ball pos of last active hit
-    last_hit_team: Optional[int]                = None   # team of last active swing
+    last_touch_team: Optional[int]              = None   # team of last touch (hit or held-rod block)
 
     frames: list[Frame] = []
 
@@ -487,12 +487,12 @@ def simulate_point(
                                     ball_radius=config.BALL_RADIUS,
                                     pos_grid=pos_grid)
 
-            # A free man touching the ball (DEFLECT) is the last touch, like a
-            # held-rod PASSIVE block, so an earlier HIT stops counting toward
+            # A free man touching the ball (DEFLECT) belongs to no team, so it
+            # clears the touch credit and an earlier HIT stops counting toward
             # an own goal. Checked outside the log block so the result doesn't
             # depend on logging.
             if ball.contacted_player:
-                last_hit_team = None
+                last_touch_team = None
 
             if collect_action_log:
                 # Wall bounces and figurine contact are reported by the physics, so
@@ -531,7 +531,7 @@ def simulate_point(
             # Check for goal
             if ball_result.startswith('goal:'):
                 winner = int(ball_result.split(':')[1])
-                is_self_goal = last_hit_team is not None and last_hit_team != winner
+                is_self_goal = last_touch_team is not None and last_touch_team != winner
                 if goal_hits is not None and last_hit_pos is not None:
                     goal_team = 1 - winner  # team whose goal the ball entered
                     goal_hits.append((*last_hit_pos, goal_team, is_self_goal))
@@ -618,7 +618,7 @@ def simulate_point(
                     # Update last-hit tracking
                     last_hit      = (rod_idx, player_idx)
                     last_hit_pos  = (ball.x, ball.y)
-                    last_hit_team = team
+                    last_touch_team = team
                     event = 'hit'
 
                     # Only one hit per substep (first overlap wins)
@@ -628,7 +628,7 @@ def simulate_point(
                     if s is not None:
                         # Backswing or follow-through: the man is lifted, so the
                         # ball passes under it untouched (not a touch:
-                        # last_hit_team is left alone).
+                        # last_touch_team is left alone).
                         # The swing stays armed: a slow ball still in reach when
                         # the window opens is struck, one that has left by then
                         # is a whiff, logged when the swing expires.
@@ -638,12 +638,13 @@ def simulate_point(
                         continue
 
                     # No swing armed: bounce off the rigid player (no pushback).
-                    # That block becomes the last touch, but it isn't a shot, so
-                    # an earlier HIT stops counting toward an own goal.
+                    # The block is a touch by this rod's team (so a block into
+                    # its own net is an own goal), but not a shot, so
+                    # last_hit_pos is left alone.
                     if not _resolve_rigid_contact(ball, rod, player_idx,
                                                   _x_pre, _y_pre, reflect=True):
                         continue
-                    last_hit_team = None
+                    last_touch_team = team
                     if collect_action_log:
                         _action_log.append(ActionLogEntry(
                             game_time    = game_time,
@@ -691,8 +692,8 @@ def simulate_point(
 
         # Reset last_hit if ball stopped
         if ball.stopped:
-            last_hit      = None
-            last_hit_team = None
+            last_hit        = None
+            last_touch_team = None
 
         # --------------------------------------------------------------
         # 6. Record frame

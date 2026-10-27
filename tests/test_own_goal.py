@@ -1,15 +1,16 @@
 """
 Own-goal credit (PointResult.is_self_goal).
 
-Rule: only a HIT is a touch. A whiff passes through and changes nothing; a
-held-rod PASSIVE block or any free-rod contact (DEFLECT) clears the credit
-(so does the ball stopping, but no
-scene can score after a stop without a new touch that sets or clears the
-credit itself, so that branch is not observable from a point's result).
+Rule: the last touch decides. A HIT or a held-rod PASSIVE block is a touch by
+that rod's team; a ball that then enters that team's own net is an own goal. A
+whiff passes through and changes nothing; a free-rod contact (DEFLECT) belongs
+to no team and clears the credit (so does the ball stopping, but no scene can
+score after a stop without a new touch that sets or clears the credit itself,
+so that branch is not observable from a point's result).
 """
 
 from field import Field
-from helpers import (T0_GOA, T0_MID, T1_GOA, T1_MID, ScriptedStrategy, log_of,
+from helpers import (T0_FWD, T0_GOA, T0_MID, T1_GOA, T1_MID, ScriptedStrategy, log_of,
                      run_scene, swing, up_once_moving)
 from simulation import simulate_point
 
@@ -29,12 +30,21 @@ def test_hit_into_own_net_is_own_goal(fps):
     assert result.is_self_goal
 
 
-def test_passive_block_clears_credit(fps):
-    # T0 shoots at T1's held mid, the block sends it back into T0's net
+def test_opponent_block_takes_credit(fps):
+    # T0 shoots at T1's held mid, the block sends it back into T0's net:
+    # T1 made the last touch, so it is T1's goal, not a T0 own goal
     _, result = run_scene(t0_kick(150.0), ScriptedStrategy(hands={T1_MID}))
     assert log_of(result, 'PASSIVE', 'T1-mid')
     assert result.winner == 1
     assert not result.is_self_goal
+
+
+def test_own_held_rod_block_is_own_goal(fps):
+    # T0's shot hits T0's own held forward, which sends it back into T0's net
+    _, result = run_scene(t0_kick(150.0, hands={T0_FWD}), ScriptedStrategy(**IDLE_T1))
+    assert log_of(result, 'PASSIVE', 'T0-fwd')
+    assert result.winner == 1
+    assert result.is_self_goal
 
 
 def test_whiff_keeps_credit(fps):
@@ -62,7 +72,7 @@ def test_deflect_scene_is_valid(fps):
 
 
 def test_free_rod_deflect_clears_credit(fps):
-    # Used to count as a T0 own goal: DEFLECT did not clear last_hit_team
+    # Used to count as a T0 own goal: DEFLECT did not clear last_touch_team
     _, result = deflect_scene()
     assert not result.is_self_goal
 
