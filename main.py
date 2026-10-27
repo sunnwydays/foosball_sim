@@ -79,10 +79,13 @@ def main() -> None:
         else:
             rod.accuracy, rod.power_consistency = 0.2, 0.2
 
+    # AimAtGap, not SmackBall: SmackBall shoots at the goal through every rod
+    # in the way, so a precise shot is blocked as often as a wild one and
+    # skill makes no difference
     run_experiment(
-        "Exp 3 - Skill gap: Smackball (0.9) vs (0.2)",
+        "Exp 3 - Skill gap: AimAtGap (0.9) vs (0.2)",
         field      = skilled_field,
-        strategies = {0: SmackBall(), 1: SmackBall()},
+        strategies = {0: AimAtGap(), 1: AimAtGap()},
     )
 
     run_experiment(
