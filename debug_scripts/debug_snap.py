@@ -222,10 +222,10 @@ def from_seed(args) -> None:
         field, result, _ = run_point(args.seed, TEAM_0, TEAM_1, TEAM_0_SKILL, TEAM_1_SKILL)
     labels = rod_labels(field)
 
-    # The k-th call that moved the ball produced the k-th WHIFF/PASSIVE log
-    # entry (both happen in the same place in simulation.py), so the log
-    # supplies the time.
-    bounces = [e for e in result.action_log if e.action in ("WHIFF", "PASSIVE")]
+    # The k-th call that moved the ball produced the k-th PASSIVE log entry
+    # (both happen in the same place in simulation.py; whiffs pass through and
+    # never call it), so the log supplies the time.
+    bounces = [e for e in result.action_log if e.action == "PASSIVE"]
     n_snaps = sum(c["snap"] for c in tr.calls)
     print(f"seed {args.seed}: {len(tr.calls)} rigid contacts, {n_snaps} snaps in the whole point, "
           f"outcome={result.outcome}")

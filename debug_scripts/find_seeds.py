@@ -36,7 +36,7 @@ def back_bounces(result) -> list[tuple[float, str]]:
     """(time, rod_label) for each rigid bounce off a player hit from behind."""
     out = []
     for e in result.action_log:
-        if e.action not in ("WHIFF", "PASSIVE"):
+        if e.action != "PASSIVE":   # whiffs pass through, they never bounce
             continue
         tick = round(e.game_time / config.DT)
         if tick < 1 or tick >= len(result.frames):
@@ -55,7 +55,8 @@ def track_rigid_contacts():
     Wrap simulation._resolve_rigid_contact and record, for every call that
     moved the ball, how far it moved and whether the ball was actually touching
     the player's slab beforehand. Yields the list (one entry per moved call, in
-    the same order as the WHIFF/PASSIVE log entries).
+    the same order as the PASSIVE log entries; whiffs pass through and never
+    call it).
 
     A snap is a move with no real overlap: the wide reach box let the ball in,
     but the ball was still outside the slab (pen <= 0) when it got teleported.
@@ -83,7 +84,7 @@ def track_rigid_contacts():
 
 def snaps(result, calls) -> list[tuple[float, str, float]]:
     """(time, rod_label, cm moved) for each bounce that teleported the ball."""
-    bounces = [e for e in result.action_log if e.action in ("WHIFF", "PASSIVE")]
+    bounces = [e for e in result.action_log if e.action == "PASSIVE"]
     return [(e.game_time, e.rod_label, moved)
             for e, (moved, no_overlap) in zip(bounces, calls)
             if no_overlap and moved > SNAP_TOL]

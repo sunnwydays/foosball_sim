@@ -91,35 +91,25 @@ def _teams_with_reach(ball: BallState, field: Field) -> set[int]:
     return teams
 
 
-def _resolve_rigid_contact(
+def _contact_face(
     ball: BallState,
     rod,
     player_idx: int,
     x_pre: float,
     y_pre: float,
-    reflect: bool,
-) -> bool:
+) -> Optional[tuple[str, float]]:
     """
-    Resolve contact between the ball and a rigid (controlled) player.
+    Which face of a rigid (controlled) player the ball touched this substep.
 
-    Overlap detection uses the wide rotation-reach box (so swings can connect)
-    and the bounce still resolves at the player slab like before, but the ball
-    is always ejected through the face on the side it CAME FROM this substep
-    (never the far side) and its velocity is set to point away from that face,
-    so a bounce can never send the ball back into the player. A ball outside
-    the slab that has not tunnelled through it is left untouched.
+    Returns (axis, exit_sign): axis 'x' for the front face or 'y' for a side
+    face, exit_sign the direction back out the side the ball CAME FROM. Returns
+    None if the ball is only inside the wide reach box, not the player slab,
+    and has not tunnelled through it.
 
-    The face (front x or side y) is chosen from where the ball was BEFORE the
-    substep (x_pre, y_pre), not from the current overlap: a fast ball entering
-    the front near a player's edge can end deeper in x than in y, which a
-    least-penetration test on the current position misreads as a side hit.
-
-    reflect=True  : rigid bounce at CONTROLLED_SLOWDOWN (whiff / no swing armed)
-    reflect=False : absorbed bounce at PASSIVE_SLOWDOWN (currently unused: a
-                    rod mid-switch is uncontrolled, so physics.step_ball's
-                    passive contact handles it instead)
-
-    Returns True if the ball was modified, False if there was no real contact.
+    The face is chosen from where the ball was BEFORE the substep (x_pre,
+    y_pre), not from the current overlap: a fast ball entering the front near
+    a player's edge can end deeper in x than in y, which a least-penetration
+    test on the current position misreads as a side hit.
     """
     r  = config.BALL_RADIUS
     py = rod.player_positions[player_idx]
@@ -142,17 +132,54 @@ def _resolve_rigid_contact(
         crossed   = (exit_sign > 0) != (dy > 0)
         # Touching now? Must overlap in x, and in y unless it tunnelled across
         if pen_x <= 0 or (not crossed and pen_y <= 0):
-            return False
-        ball.y  = py + exit_sign * hw   # reposition on appropriate face
+            return None
+        return 'y', exit_sign
+    # Front face (x)
+    exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
+    crossed   = (exit_sign > 0) != (dx > 0)
+    # Touching now? Must overlap in y, and in x unless it tunnelled through
+    if pen_y <= 0 or (not crossed and pen_x <= 0):
+        return None
+    return 'x', exit_sign
+
+
+def _resolve_rigid_contact(
+    ball: BallState,
+    rod,
+    player_idx: int,
+    x_pre: float,
+    y_pre: float,
+    reflect: bool,
+) -> bool:
+    """
+    Resolve contact between the ball and a rigid (controlled) player.
+
+    Overlap detection uses the wide rotation-reach box (so swings can connect)
+    and the bounce still resolves at the player slab like before, but the ball
+    is always ejected through the face on the side it CAME FROM this substep
+    (never the far side) and its velocity is set to point away from that face,
+    so a bounce can never send the ball back into the player. A ball outside
+    the slab that has not tunnelled through it is left untouched. See
+    _contact_face for how the face is chosen.
+
+    reflect=True  : rigid bounce at CONTROLLED_SLOWDOWN (held rod, no swing armed)
+    reflect=False : absorbed bounce at PASSIVE_SLOWDOWN (currently unused: a
+                    rod mid-switch is uncontrolled, so physics.step_ball's
+                    passive contact handles it instead)
+
+    Returns True if the ball was modified, False if there was no real contact.
+    """
+    face = _contact_face(ball, rod, player_idx, x_pre, y_pre)
+    if face is None:
+        return False
+    axis, exit_sign = face
+    if axis == 'y':
+        hw = rod.width / 2 + config.BALL_RADIUS
+        ball.y  = rod.player_positions[player_idx] + exit_sign * hw   # reposition on appropriate face
         slow    = config.CONTROLLED_SLOWDOWN if reflect else 1.0
         ball.vy = exit_sign * abs(ball.vy) * slow
     else:
-        # Front face (x)
-        exit_sign = 1.0 if x_pre - rod.x > 0 else -1.0
-        crossed   = (exit_sign > 0) != (dx > 0)
-        # Touching now? Must overlap in y, and in x unless it tunnelled through
-        if pen_y <= 0 or (not crossed and pen_x <= 0):
-            return False
+        ht = rod.thickness / 2 + config.BALL_RADIUS
         ball.x = rod.x + exit_sign * ht
         if reflect:
             ball.vx = exit_sign * abs(ball.vx) * config.CONTROLLED_SLOWDOWN
@@ -477,9 +504,10 @@ def simulate_point(
             # 5. Detect overlaps + resolve any committed swing
             #
             # A controlled rod connects only if it has a pending swing whose active
-            # window brackets this contact. Otherwise (whiff, or no swing armed) the
-            # held rod rigid-bounces the ball. Uncontrolled-rod contact was already
-            # handled passively inside step_ball.
+            # window brackets this contact. A whiff (swing outside its window) lets
+            # the ball pass through; with no swing armed the held rod rigid-bounces
+            # the ball. Uncontrolled-rod contact was already handled passively
+            # inside step_ball.
             # --------------------------------------------------------------
             overlaps = find_overlapping_players(ball, field)
 
@@ -533,22 +561,32 @@ def simulate_point(
                     break
 
                 elif rod.controlled and rod.switch_timer <= 0:
-                    # Whiff (mistimed swing) or no swing armed on a settled rod:
-                    # bounce the ball off rigid players (no pushback)
-                    if not _resolve_rigid_contact(ball, rod, player_idx,
-                                                  _x_pre, _y_pre, reflect=True):
-                        continue
-                    _had_swing = s is not None
-                    _intended  = (s.vx, s.vy) if _had_swing else None
+                    # Whiff (swing armed, mistimed): the man is mid-rotation, so
+                    # the ball passes through untouched. Not a touch: last_hit_team
+                    # is left alone. last_hit is set so the following substeps,
+                    # with the ball still inside the slab, don't rigid-bounce it.
+                    # No swing armed: bounce off the rigid player (no pushback).
+                    # That block becomes the last touch, but it isn't a shot, so
+                    # an earlier HIT stops counting toward an own goal.
+                    if s is not None:
+                        if _contact_face(ball, rod, player_idx, _x_pre, _y_pre) is None:
+                            continue
+                        _action = 'WHIFF'
+                    else:
+                        if not _resolve_rigid_contact(ball, rod, player_idx,
+                                                      _x_pre, _y_pre, reflect=True):
+                            continue
+                        _action = 'PASSIVE'
+                        last_hit_team = None
                     rod.pending_swing = None
                     if collect_action_log:
                         _action_log.append(ActionLogEntry(
                             game_time    = game_time,
                             team         = team,
                             rod_label    = _rod_labels[rod_idx],
-                            action       = 'WHIFF' if _had_swing else 'PASSIVE',
+                            action       = _action,
                             ball_pos     = (ball.x, ball.y),
-                            intended_vel = _intended,
+                            intended_vel = (s.vx, s.vy) if s is not None else None,
                             actual_vel   = None,
                         ))
                     # Whiff locks opponent's reaction timer

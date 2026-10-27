@@ -477,6 +477,19 @@ class Strategy(ABC):
                 best_key, best_off = key, off
         return best_off
 
+    def _shot_from_behind(self, rod: Rod, ball: BallState) -> bool:
+        """
+        True when the ball is moving toward the goal this rod attacks and has
+        not yet cleared the rod's front face, i.e. a teammate's shot is coming
+        at it from behind. A held rod should flip up so the shot passes.
+
+        The margin is the player slab: the rod stays up until the ball is fully
+        past, since dropping it mid-pass would push the ball back out the rear.
+        """
+        d  = 1.0 if rod.team == 0 else -1.0
+        ht = rod.thickness / 2 + config.BALL_RADIUS
+        return ball.vx * d > config.STOP_THRESHOLD and (ball.x - rod.x) * d < ht
+
     def _predicted_y(self, rod: Rod, ball: BallState, field: Field) -> float:
         """Absolute y where ball is predicted to reach this rod's x, folded for
         side-wall bounces. Falls back to ball.y when no clean intercept."""
@@ -671,13 +684,8 @@ class HardOffense(Strategy):
         for rod_idx, rod in controlled_rods:
             target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
 
-            # Flip rod up if ball is moving away from opponent's goal past this rod
-            up = False
-            if rod.team == 0:
-                up = ball.vx < -config.STOP_THRESHOLD and rod.x > ball.x
-            else:
-                up = ball.vx > config.STOP_THRESHOLD and rod.x < ball.x
-
+            # Flip rod up to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
             targets[rod_idx] = (target_y, 0.0, up)
         return targets
 
@@ -804,13 +812,8 @@ class TiltAndGap(Strategy):
         for rod_idx, rod in controlled_rods:
             target_y = self._cover_offset(rod, self._predicted_y(rod, ball, field))
 
-            # Flip up controlled rod if ball is retreating past it
-            up = False
-            if rod.team == 0:
-                up = ball.vx < -config.STOP_THRESHOLD and rod.x > ball.x
-            else:
-                up = ball.vx > config.STOP_THRESHOLD and rod.x < ball.x
-
+            # Flip up controlled rod to let a teammate's shot from behind pass
+            up = self._shot_from_behind(rod, ball)
             targets[rod_idx] = (target_y, 0.0, up)
         return targets
 
