@@ -68,6 +68,7 @@ def main() -> None:
     ap.add_argument("--init", default=None, help="continue from a saved model")
     ap.add_argument("--selfplay", action="store_true")
     ap.add_argument("--envs", type=int, default=N_ENVS)
+    ap.add_argument("--snap-every", type=int, default=SNAPSHOT_EVERY)
     args = ap.parse_args()
 
     from stable_baselines3 import PPO
@@ -81,16 +82,29 @@ def main() -> None:
     class Hooks(BaseCallback):
         def __init__(self):
             super().__init__()
-            self.next_eval = 0
-            self.next_snap = SNAPSHOT_EVERY
             self.t0 = time.time()
+
+        def _snapshot(self, n: int) -> None:
+            path = os.path.join(snap_dir, f"snap_{n}.zip")
+            self.model.save(path)
+            self.training_env.env_method("add_opponent", os.path.abspath(path))
+            print(f"snapshot -> {path}", flush=True)
+
+        def _on_training_start(self) -> None:
+            # a resumed run continues num_timesteps, so count from where it starts
+            n = self.model.num_timesteps
+            self.next_eval = n
+            self.next_snap = n + args.snap_every
+            if args.selfplay:
+                self._snapshot(n)   # the starting policy is the first self-play opponent
 
         def _on_step(self) -> bool:
             n = self.model.num_timesteps
             if n >= self.next_eval:
                 self.next_eval += EVAL_EVERY
                 res = evaluate(self.model)
-                new = not os.path.exists(eval_path)
+                self.model.save(args.out + "_latest")   # a run can be cut short and still keep its model
+                new =not os.path.exists(eval_path)
                 with open(eval_path, "a", newline="") as f:
                     w = csv.writer(f)
                     if new:
@@ -100,11 +114,8 @@ def main() -> None:
                       f"mean wr {np.mean(list(res.values())):.3f}  " +
                       "  ".join(f"{k}={v:.2f}" for k, v in res.items()), flush=True)
             if args.selfplay and n >= self.next_snap:
-                self.next_snap += SNAPSHOT_EVERY
-                path = os.path.join(snap_dir, f"snap_{n}.zip")
-                self.model.save(path)
-                self.training_env.env_method("add_opponent", os.path.abspath(path))
-                print(f"snapshot -> {path}", flush=True)
+                self.next_snap += args.snap_every
+                self._snapshot(n)
             return True
 
     venv = VecMonitor(SubprocVecEnv([make_env(i) for i in range(args.envs)]))
