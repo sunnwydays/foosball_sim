@@ -102,6 +102,7 @@ def _step_ball_inner(
     r = ball_radius
 
     # --- Move ---
+    x_pre, y_pre = ball.x, ball.y
     ball.x += ball.vx * dt
     ball.y += ball.vy * dt
 
@@ -167,12 +168,21 @@ def _step_ball_inner(
             # A figurine is overlapping the ball this tick — real contact
             ball.contacted_player = True
 
-            # Which face did the ball enter from?
+            # Which face did the ball enter from? Judged from where the ball was
+            # before this step: a shot entering the front near a man's edge can
+            # end deeper in x than in y, which least penetration on the current
+            # position misreads as a side hit (the ball then sails on into the
+            # net). A ball that already overlapped (the rod tilted or dropped
+            # onto it) falls back to the current position.
             pen_x = ht - abs(dx)
             pen_y = hw - abs(dy)
+            pen_x_pre = ht - abs(x_pre - rod.x)
+            pen_y_pre = hw - abs(y_pre - py)
+            if pen_x_pre > 0 and pen_y_pre > 0:
+                pen_x_pre, pen_y_pre = pen_x, pen_y
 
             # --- Side face (y): simple bounce ---
-            if pen_x >= pen_y:
+            if pen_x_pre >= pen_y_pre:
                 ball.y = py + (hw if dy > 0 else -hw)
                 ball.vy = -ball.vy
                 continue
