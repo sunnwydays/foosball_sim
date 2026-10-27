@@ -419,13 +419,20 @@ class Strategy(ABC):
         ttc_true, predicted_y = contact
         predicted_y = _fold_into_field(predicted_y, field.width)
 
-        # Ball is already at the rod so arm an immediate hit (no lead band needed)
+        # Ball is already at the rod so arm an immediate hit (no lead band needed).
+        # The window is as long as a normal swing's: a stopped or crawling ball
+        # may need the rod to slide over to it before the man can connect. A
+        # faster ball is level with the rod for about a tick, far too short to
+        # see it and swing, so it gets no free strike.
         if ttc_true <= 0.0:
+            if ball.speed > config.IMMEDIATE_SWING_MAX_SPEED:
+                return None
             vel = self._apply_hit(rod, aim_x, aim_y, predicted_y, intended_speed)
             if vel is None:
                 return None
             vx, vy = vel
-            return SwingCommitment(vx=vx, vy=vy, active_start=t, window_end=t + config.DT)
+            active = config.SWING_DURATION * (1 - config.BACKSWING_RATIO)
+            return SwingCommitment(vx=vx, vy=vy, active_start=t, window_end=t + active)
 
         # Bail if ball too far to predict reliably
         if ttc_true > config.ANTICIPATION_MAX_HORIZON:

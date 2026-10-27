@@ -130,12 +130,19 @@ SWITCH_DELAY   = 0.25     # seconds — delay when switching a hand to a new rod
 #   commit at t_c →
 #     active_start = t_c + SWING_DURATION * BACKSWING_RATIO
 #     window_end   = t_c + SWING_DURATION
-#   Ball must reach the player within [active_start, window_end] to be struck;
-#   otherwise the held rod rigid-bounces (a "whiff").
+#     over_at      = window_end + SWING_RECOVERY
+#   Ball must be in reach within [active_start, window_end] to be struck.
+#   During the backswing and the follow-through the man is lifted and the ball
+#   passes under it; if it never gets struck the swing is a "whiff". After
+#   over_at the man is back down and the held rod rigid-blocks like an idle one.
 # ---------------------------------------------------------------------------
 SWING_DURATION  = 0.4    # seconds — total swing (backswing + active window)
-BACKSWING_RATIO = 0.5    # fraction of the swing spent in backswing
-COMMIT_COOLDOWN = SWING_DURATION  # seconds — min time between successive swing commits
+BACKSWING_RATIO = 0.75   # fraction of the swing spent in backswing (0.5 left a 0.2 s
+                         # active window that almost never missed, so whiffs were ~2%)
+SWING_RECOVERY  = 0.1    # seconds — follow-through after the window, man still lifted
+COMMIT_COOLDOWN = SWING_DURATION + SWING_RECOVERY  # seconds — min time between successive swing commits
+IMMEDIATE_SWING_MAX_SPEED = 30.0  # cm/s — a ball already level with the rod can be struck
+                                  # at once (no backswing) only if it is slower than this
 
 # Anticipation skill — accuracy of the time-to-contact (TTC) estimate.
 #   anticipation=1 → near-perfect TTC even at long horizon (commit early, far away)

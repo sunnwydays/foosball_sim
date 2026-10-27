@@ -297,16 +297,44 @@ def simulate_point(
 
     possession_timer: dict[int, float] = {0: 0.0, 1: 0.0}
 
+    def _expire_swing(rod_idx: int, rod) -> None:
+        """Drop a finished swing; log a WHIFF if the ball slipped past it."""
+        nonlocal last_hit
+        s = rod.pending_swing
+        rod.pending_swing = None
+        if s.passed is None:
+            return
+        # Ball still passing under the man as it comes back down: it lands
+        # behind the ball, so treat it as already touched instead of letting
+        # the next rigid contact shove the ball back out the way it came.
+        player_idx = rod.player_in_box(ball.x, ball.y, ball_radius=config.BALL_RADIUS)
+        if player_idx is not None:
+            last_hit = (rod_idx, player_idx)
+        if collect_action_log:
+            x, y, vx, vy = s.passed
+            _action_log.append(ActionLogEntry(
+                game_time    = game_time,
+                team         = rod.team,
+                rod_label    = _rod_labels[rod_idx],
+                action       = 'WHIFF',
+                ball_pos     = (x, y),
+                intended_vel = (s.vx, s.vy),
+                actual_vel   = (vx, vy),   # ball velocity when it passed
+            ))
+
     # --- Tick loop ---
     for tick in range(config.MAX_TICKS):
         game_time = tick * dt
         event: Optional[str] = None
 
         # --------------------------------------------------------------
-        # 1. Decrement timers
+        # 1. Decrement timers, expire finished swings
         # --------------------------------------------------------------
         for ts in team_states.values():
             ts.tick(dt)
+        for rod_idx, rod in enumerate(field.rods):
+            if rod.pending_swing is not None and game_time > rod.pending_swing.over_at:
+                _expire_swing(rod_idx, rod)
 
         # --------------------------------------------------------------
         # 2. Strategy decisions: hands + targets + up/down
@@ -504,16 +532,20 @@ def simulate_point(
             # 5. Detect overlaps + resolve any committed swing
             #
             # A controlled rod connects only if it has a pending swing whose active
-            # window brackets this contact. A whiff (swing outside its window) lets
-            # the ball pass through; with no swing armed the held rod rigid-bounces
-            # the ball. Uncontrolled-rod contact was already handled passively
-            # inside step_ball.
+            # window brackets this contact. During the backswing and follow-through
+            # the man is lifted and the ball passes under it (a whiff unless it is
+            # struck in the window); with no swing armed, or after the swing is
+            # over, the held rod rigid-bounces the ball. Uncontrolled-rod contact
+            # was already handled passively inside step_ball.
             # --------------------------------------------------------------
             overlaps = find_overlapping_players(ball, field)
 
             for rod_idx, player_idx in overlaps:
                 rod  = field.rods[rod_idx]
                 team = rod.team
+
+                if rod.pending_swing is not None and t_now > rod.pending_swing.over_at:
+                    _expire_swing(rod_idx, rod)   # finished mid-tick (may set last_hit)
 
                 # Double-hit check: same player can't hit twice in a row
                 # unless ball has stopped (which resets last_hit)
@@ -561,35 +593,36 @@ def simulate_point(
                     break
 
                 elif rod.controlled and rod.switch_timer <= 0:
-                    # Whiff (swing armed, mistimed): the man is mid-rotation, so
-                    # the ball passes through untouched. Not a touch: last_hit_team
-                    # is left alone. last_hit is set so the following substeps,
-                    # with the ball still inside the slab, don't rigid-bounce it.
+                    if s is not None:
+                        # Backswing or follow-through: the man is lifted, so the
+                        # ball passes under it untouched (not a touch:
+                        # last_hit_team is left alone).
+                        # The swing stays armed: a slow ball still in reach when
+                        # the window opens is struck, one that has left by then
+                        # is a whiff, logged when the swing expires.
+                        if (s.passed is None and
+                                _contact_face(ball, rod, player_idx, _x_pre, _y_pre) is not None):
+                            s.passed = (ball.x, ball.y, ball.vx, ball.vy)
+                        continue
+
                     # No swing armed: bounce off the rigid player (no pushback).
                     # That block becomes the last touch, but it isn't a shot, so
                     # an earlier HIT stops counting toward an own goal.
-                    if s is not None:
-                        if _contact_face(ball, rod, player_idx, _x_pre, _y_pre) is None:
-                            continue
-                        _action = 'WHIFF'
-                    else:
-                        if not _resolve_rigid_contact(ball, rod, player_idx,
-                                                      _x_pre, _y_pre, reflect=True):
-                            continue
-                        _action = 'PASSIVE'
-                        last_hit_team = None
-                    rod.pending_swing = None
+                    if not _resolve_rigid_contact(ball, rod, player_idx,
+                                                  _x_pre, _y_pre, reflect=True):
+                        continue
+                    last_hit_team = None
                     if collect_action_log:
                         _action_log.append(ActionLogEntry(
                             game_time    = game_time,
                             team         = team,
                             rod_label    = _rod_labels[rod_idx],
-                            action       = _action,
+                            action       = 'PASSIVE',
                             ball_pos     = (ball.x, ball.y),
-                            intended_vel = (s.vx, s.vy) if s is not None else None,
+                            intended_vel = None,
                             actual_vel   = None,
                         ))
-                    # Whiff locks opponent's reaction timer
+                    # A block locks opponent's reaction timer
                     opp_team = 1 - team
                     team_states[opp_team].reaction_timer = config.REACTION_TIME
                     last_hit = (rod_idx, player_idx)

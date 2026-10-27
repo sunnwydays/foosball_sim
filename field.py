@@ -322,13 +322,24 @@ class SwingCommitment:
     vx, vy       — velocity to SET on the ball if contact lands in the window.
     active_start — sim time when the hit window opens (after the backswing).
     window_end   — sim time when the hit window closes.
+    passed       — ball (x, y, vx, vy) when it first touched the man while it
+                   was lifted (backswing or follow-through), or None. The ball
+                   passes under it and the swing stays armed: if the ball is
+                   still in reach when the window opens it is struck, otherwise
+                   the swing expires as a whiff.
 
-    Contact before active_start or after window_end is a whiff (rigid bounce).
+    After over_at the man is back down: contact then is a plain rigid block.
     """
     vx: float
     vy: float
     active_start: float
     window_end: float
+    passed: Optional[tuple[float, float, float, float]] = None
+
+    @property
+    def over_at(self) -> float:
+        """Sim time the follow-through ends and the man is back down."""
+        return self.window_end + config.SWING_RECOVERY
 
 
 # ---------------------------------------------------------------------------
