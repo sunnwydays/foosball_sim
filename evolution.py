@@ -193,12 +193,13 @@ class ParameterizedStrategy(Strategy):
         for rod_idx, rod in passive_rods:
             is_attacking = (rod._base_x - field.depth / 2) * attack_dir > 0
             if is_attacking:
-                # center at 0 to include forward and backward lean
-                x_offset = (self.passive_x_off_atk - 0.5) * 2 * config.ROD_X_REACH
+                # center at 0 to include forward and backward lean; attack_dir
+                # makes "forward" mean toward the opponent on either side
+                x_offset = (self.passive_x_off_atk - 0.5) * 2 * config.ROD_X_REACH * attack_dir
                 ball_progress = ball.x / field.depth if team == 0 else 1.0 - ball.x / field.depth
                 up = ball_progress < self.lift_atk
             else:
-                x_offset = (self.passive_x_off_def - 0.5) * 2 * config.ROD_X_REACH
+                x_offset = (self.passive_x_off_def - 0.5) * 2 * config.ROD_X_REACH * attack_dir
                 up = False
 
             rod_positions[rod_idx] = x_offset, up
