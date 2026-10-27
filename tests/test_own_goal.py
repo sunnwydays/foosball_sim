@@ -2,15 +2,16 @@
 Own-goal credit (PointResult.is_self_goal).
 
 Rule: only a HIT is a touch. A whiff passes through and changes nothing; a
-held-rod PASSIVE block clears the credit (so does the ball stopping, but no
+held-rod PASSIVE block or any free-rod contact (DEFLECT) clears the credit
+(so does the ball stopping, but no
 scene can score after a stop without a new touch that sets or clears the
 credit itself, so that branch is not observable from a point's result).
 """
 
-import pytest
-
+from field import Field
 from helpers import (T0_GOA, T0_MID, T1_GOA, T1_MID, ScriptedStrategy, log_of,
                      run_scene, swing, up_once_moving)
+from simulation import simulate_point
 
 
 def t0_kick(vx, hands=(), swings=None):
@@ -60,10 +61,16 @@ def test_deflect_scene_is_valid(fps):
     assert result.winner == 1
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "Undecided: a free-rod DEFLECT does not clear last_hit_team, so a shot "
-    "that bounces off an opponent's unheld man into the shooter's own net is "
-    "an own goal. When this is decided, replace the xfail with the rule."))
 def test_free_rod_deflect_clears_credit(fps):
+    # Used to count as a T0 own goal: DEFLECT did not clear last_hit_team
     _, result = deflect_scene()
+    assert not result.is_self_goal
+
+
+def test_deflect_credit_does_not_depend_on_logging(fps):
+    # The DEFLECT check used to live only inside the action-log block
+    t1 = ScriptedStrategy(hands={T1_GOA}, passive={T1_MID: (0.0, False)})
+    result = simulate_point(Field(), {0: t0_kick(150.0), 1: t1}, kickoff_team=0,
+                            seed=0, collect_action_log=False)
+    assert result.winner == 1
     assert not result.is_self_goal

@@ -487,6 +487,13 @@ def simulate_point(
                                     ball_radius=config.BALL_RADIUS,
                                     pos_grid=pos_grid)
 
+            # A free man touching the ball (DEFLECT) is the last touch, like a
+            # held-rod PASSIVE block, so an earlier HIT stops counting toward
+            # an own goal. Checked outside the log block so the result doesn't
+            # depend on logging.
+            if ball.contacted_player:
+                last_hit_team = None
+
             if collect_action_log:
                 # Wall bounces and figurine contact are reported by the physics, so
                 # the cause is read from real events rather than inferred from the
