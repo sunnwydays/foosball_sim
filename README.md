@@ -35,6 +35,8 @@ pip install -r requirements.txt
 | `python debug_scripts/scan_stalls.py` | Find points that end by possession limit, time out, or stall |
 | `python debug_scripts/tune.py [n] [NAME=VALUE ...]` | Realism metrics (whiff rate by ball speed, own goals, dead balls, point length) against target bands; `--sweep` compares values |
 | `python time_sim.py` | Benchmark simulation throughput (points per second) |
+| `pytest` | Fast regression suite (a few seconds); needs `pip install -r requirements-dev.txt` |
+| `pytest -m slow` | Seed sweep: invariants and detector counts against recorded baselines (~25 s) |
 
 ## How the simulation works
 
@@ -79,6 +81,8 @@ Rod rotation is modelled as an x-offset (`x_offset`, up to ±`ROD_X_REACH`). A r
 | [play.py](play.py) | Run and replay one point. The main way to look at the game. |
 | [playground.py](playground.py) | Interactive single-rod physics sandbox. |
 | [debug_scripts/find_seeds.py](debug_scripts/find_seeds.py) | Bug detector: scans seeds and flags suspicious ball-player contact. |
+| [debug_scripts/detectors.py](debug_scripts/detectors.py) | The BACK-BOUNCE, FACE-SLIDE and SNAP detectors, shared by `find_seeds.py` and the test suite. |
+| [tests/](tests/) | pytest suite: physics unit tests, scripted scenes through `simulate_point`, and the slow seed sweep. Never imports `play.py`. |
 | [debug_scripts/debug_face_slide.py](debug_scripts/debug_face_slide.py) | Isolates and traces one flagged contact bug. |
 | [debug_scripts/debug_snap.py](debug_scripts/debug_snap.py) | Traces held-rod snaps, from a hand-built contact or a seed replay. |
 | [debug_scripts/scan_stalls.py](debug_scripts/scan_stalls.py) | Lists seeds where a point stalls, times out, or ends by possession limit. |
@@ -199,11 +203,12 @@ It plays play.py's matchup with kickoff alternating by seed. It prints each metr
 
 The face-slide fix (commit `270d45b`) followed these steps.
 
-1. **Count it.** Add a detector to `find_seeds.py` and run it for a seed list and a baseline count.
+1. **Count it.** Add a detector to `detectors.py`, wire it into `find_seeds.py`, and run it for a seed list and a baseline count.
 2. **Watch it.** Replay a flagged seed with `play.py <seed>` and find the pattern in the action log.
 3. **Isolate it.** Replay the state just before the bug with everything else removed (`debug_face_slide.py`, `playground.py`).
 4. **Trace it.** Print every contact substep, since per-tick output hides what happens.
 5. **Hypothesize.** Decide what should physically happen, and check it against the trace before you edit anything.
 6. **Change one thing.** Fix the cause rather than tuning a constant to hide it.
 7. **Verify.** Re-run the trace, then `find_seeds.py`. The bug count should drop and the other counts should not rise.
-8. **Commit.** Include the cause and the before/after counts in the message.
+8. **Pin it.** Add a test that fails on the code before the fix, then run `pytest` and `pytest -m slow`.
+9. **Commit.** Include the cause and the before/after counts in the message.
