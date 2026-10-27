@@ -168,29 +168,34 @@ def _step_ball_inner(
             # A figurine is overlapping the ball this tick — real contact
             ball.contacted_player = True
 
-            # Which face did the ball enter from? Judged from where the ball was
-            # before this step: a shot entering the front near a man's edge can
-            # end deeper in x than in y, which least penetration on the current
-            # position misreads as a side hit (the ball then sails on into the
-            # net). A ball that already overlapped (the rod tilted or dropped
-            # onto it) falls back to the current position.
-            pen_x = ht - abs(dx)
-            pen_y = hw - abs(dy)
-            pen_x_pre = ht - abs(x_pre - rod.x)
-            pen_y_pre = hw - abs(y_pre - py)
+            # Which face did the ball enter from, and on which side? Judged from
+            # where the ball was before this step: a shot entering the front
+            # near a man's edge can end deeper in x than in y, which least
+            # penetration on the current position misreads as a side hit (the
+            # ball then sails on into the net), and a ball that has passed the
+            # man's centre line would be pushed out the far side. A ball that
+            # already overlapped (the rod tilted or dropped onto it) falls back
+            # to the current position. Uses the rod's current position, so rod
+            # movement during the substep is ignored.
+            ref_x, ref_y = x_pre, y_pre
+            pen_x_pre = ht - abs(ref_x - rod.x)
+            pen_y_pre = hw - abs(ref_y - py)
             if pen_x_pre > 0 and pen_y_pre > 0:
-                pen_x_pre, pen_y_pre = pen_x, pen_y
+                ref_x, ref_y = ball.x, ball.y
+                pen_x_pre, pen_y_pre = ht - abs(dx), hw - abs(dy)
 
             # --- Side face (y): simple bounce ---
             if pen_x_pre >= pen_y_pre:
-                ball.y = py + (hw if dy > 0 else -hw)
-                ball.vy = -ball.vy
+                exit_sign = 1.0 if ref_y - py > 0 else -1.0
+                ball.y = py + exit_sign * hw
+                ball.vy = exit_sign * abs(ball.vy)
                 continue
 
             # --- Front face (x): passive contact model ---
-            
+            exit_sign = 1.0 if ref_x - rod.x > 0 else -1.0
+
             # Push ball out of the player
-            ball.x = rod.x + (ht if dx > 0 else -ht)
+            ball.x = rod.x + exit_sign * ht
 
             orig_speed = abs(ball.vx)
 
@@ -201,7 +206,7 @@ def _step_ball_inner(
                 ball.vx *= contact.slowdown
                 continue
 
-            hit_sign = 1.0 if dx > 0 else -1.0
+            hit_sign = exit_sign
             push_dir = -hit_sign
             offset_toward_ball = rod.x_offset * hit_sign  # > 0 is forward tilt
 
