@@ -13,6 +13,7 @@ Field      — The complete table: rods, goals, dimensions.
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field as dc_field
 from typing import Optional
 
@@ -182,7 +183,7 @@ class Rod:
         )
         if abs(ty - self._intended_target_y) > tol or settled_off:
             self._intended_target_y = ty
-            noise = float(np.random.normal(0.0, self.movement_std))
+            noise = random.gauss(0.0, self.movement_std)
             self.target_y = max(self._slide_min, min(self._slide_max, ty + noise))
 
     def set_offset(self, offset: float) -> None:

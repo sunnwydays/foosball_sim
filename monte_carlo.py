@@ -15,6 +15,7 @@ Usage
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Optional
 
@@ -113,6 +114,7 @@ def run_monte_carlo(
     """
     if seed is not None:
         np.random.seed(seed)
+        random.seed(seed)
 
     wins       = [0, 0]
     draws      = 0
@@ -133,7 +135,7 @@ def run_monte_carlo(
     dead_hits:  list = [] if track_stats else None
 
     for _ in range(n_simulations):
-        kickoff_team = 0 if np.random.random() < p_team0_starts else 1
+        kickoff_team = 0 if random.random() < p_team0_starts else 1
 
         result: PointResult = simulate_point(
             field, strategies,

@@ -26,8 +26,9 @@ A Strategy is called every tick and makes four decisions:
 from __future__ import annotations
 
 import math
+import random
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
 
@@ -203,7 +204,30 @@ def _time_to_reach_x(x0: float, vx: float, speed: float, target_x: float) -> Opt
 _MAX_PREDICT_BOUNCES = 4
 
 
+_contact_cache: dict = {}
+_contact_cache_ball: tuple = ()
+
+
 def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
+    """
+    Memoized `_predict_contact_uncached`: several strategy steps ask about the
+    same (ball, rod) pair within one tick. The cache is dropped whenever the
+    ball state changes; rod.x is in the key because choose_pos moves it mid-tick.
+    """
+    global _contact_cache_ball
+    ball_key = (ball.x, ball.y, ball.vx, ball.vy)
+    if ball_key != _contact_cache_ball:
+        _contact_cache.clear()
+        _contact_cache_ball = ball_key
+    key = (id(rod), rod.x, rod.thickness, rod.rod_x_reach)
+    try:
+        return _contact_cache[key]
+    except KeyError:
+        result = _contact_cache[key] = _predict_contact_uncached(ball, rod)
+        return result
+
+
+def _predict_contact_uncached(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
     """
     Predict when and where the ball reaches this rod's contact face, following
     end-wall (x) bounces so a rod can anticipate the ball's return off the back
@@ -387,11 +411,11 @@ class Strategy(ABC):
         if math.sqrt(dx * dx + dy * dy) < 1e-6:
             return None
 
-        actual_speed = float(np.random.normal(intended_speed, rod.speed_std))
+        actual_speed = random.gauss(intended_speed, rod.speed_std)
         actual_speed = max(10.0, min(config.BALL_MAX_SPEED, actual_speed))
 
         intended_angle = math.atan2(dy, dx)
-        actual_angle = float(np.random.normal(intended_angle, rod.angle_std))
+        actual_angle = random.gauss(intended_angle, rod.angle_std)
 
         return (
             actual_speed * math.cos(actual_angle),
@@ -404,14 +428,15 @@ class Strategy(ABC):
         ball: BallState,
         field: Field,
         t: float,
-        aim_x: float,
-        aim_y: float,
+        aim: Callable[[], tuple[float, float]],
         intended_speed: float,
     ) -> Optional[SwingCommitment]:
         """
-        Decide whether *now* is the moment to commit a swing aimed at (aim_x,
-        aim_y), and if so build the SwingCommitment. Shared by every strategy —
-        each strategy only supplies its aim point + intended speed.
+        Decide whether *now* is the moment to commit a swing, and if so build
+        the SwingCommitment. Shared by every strategy — each strategy only
+        supplies an `aim()` callable returning (aim_x, aim_y) plus the intended
+        speed. `aim` is called only once the timing gate passes, since most
+        calls bail out before a swing is committed.
         """
         contact = _predict_contact(ball, rod)
         if contact is None:
@@ -427,6 +452,7 @@ class Strategy(ABC):
         if ttc_true <= 0.0:
             if ball.speed > config.IMMEDIATE_SWING_MAX_SPEED:
                 return None
+            aim_x, aim_y = aim()
             vel = self._apply_hit(rod, aim_x, aim_y, predicted_y, intended_speed)
             if vel is None:
                 return None
@@ -440,12 +466,14 @@ class Strategy(ABC):
 
         # Apply anticipation noise
         sigma = config.ANTICIPATION_TTC_NOISE * ttc_true * (1 - rod.anticipation)
-        ttc_est = ttc_true + (float(np.random.normal(0, sigma)) if sigma > 0 else 0.0)
+        ttc_est = ttc_true + (random.gauss(0, sigma) if sigma > 0 else 0.0)
 
         # Commit only if estimated arrival falls in the swing lead band
         backswing = config.SWING_DURATION * config.BACKSWING_RATIO
         if not (backswing <= ttc_est <= config.SWING_DURATION):
             return None
+
+        aim_x, aim_y = aim()
 
         # Player whose y is nearest the predicted contact point
         nearest_player_y = min(rod.player_positions, key=lambda py: abs(py - predicted_y))
@@ -638,9 +666,8 @@ class SmackBall(Strategy):
         t: float,
     ) -> Optional[SwingCommitment]:
         goal = field.goal_for_attacker(rod.team)
-        aim_x = goal.x
-        aim_y = (goal.y_min + goal.y_max) / 2
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
+        aim = (goal.x, (goal.y_min + goal.y_max) / 2)
+        return self._commit_swing(rod, ball, field, t, lambda: aim, config.HIT_SPEED)
 
 # ---------------------------------------------------------------------------
 # AimAtGap — scans for defensive gaps before hitting
@@ -674,8 +701,7 @@ class AimAtGap(Strategy):
         field: Field,
         t: float,
     ) -> Optional[SwingCommitment]:
-        aim_x, aim_y = self._find_gap_target(rod, ball, field)
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, lambda: self._find_gap_target(rod, ball, field), config.HIT_SPEED)
 
 # ---------------------------------------------------------------------------
 # HardOffense — trying to hit into the goal, remove obstacles
@@ -725,11 +751,14 @@ class HardOffense(Strategy):
         t: float,
     ) -> Optional[SwingCommitment]:
         goal = field.goal_for_attacker(rod.team)
-        aim_x = goal.x
         goal_cy = (goal.y_min + goal.y_max) / 2
         goal_half = (goal.y_max - goal.y_min) / 2
-        aim_y = float(np.clip(np.random.normal(goal_cy, goal_half / 2), goal.y_min, goal.y_max))
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED * 1.5)
+
+        def aim():
+            aim_y = float(np.clip(random.gauss(goal_cy, goal_half / 2), goal.y_min, goal.y_max))
+            return goal.x, aim_y
+
+        return self._commit_swing(rod, ball, field, t, aim, config.HIT_SPEED * 1.5)
 
     @staticmethod
     def _is_offensive(rod: Rod, field: Field) -> bool:
@@ -795,9 +824,8 @@ class DefensiveWall(Strategy):
         t: float,
     ) -> Optional[SwingCommitment]:
         goal = field.goal_for_attacker(rod.team)
-        aim_x = goal.x
-        aim_y = (goal.y_min + goal.y_max) / 2
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
+        aim = (goal.x, (goal.y_min + goal.y_max) / 2)
+        return self._commit_swing(rod, ball, field, t, lambda: aim, config.HIT_SPEED)
 
     @staticmethod
     def _is_offensive(rod: Rod, field: Field) -> bool:
@@ -857,8 +885,7 @@ class TiltAndGap(Strategy):
         field: Field,
         t: float,
     ) -> Optional[SwingCommitment]:
-        aim_x, aim_y = self._find_gap_target(rod, ball, field, skip_up=True)
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, lambda: self._find_gap_target(rod, ball, field, skip_up=True), config.HIT_SPEED)
 
 
 # ---------------------------------------------------------------------------
@@ -918,5 +945,4 @@ class ReactiveBlock(Strategy):
         field: Field,
         t: float,
     ) -> Optional[SwingCommitment]:
-        aim_x, aim_y = self._find_gap_target(rod, ball, field, skip_up=True)
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, config.HIT_SPEED)
+        return self._commit_swing(rod, ball, field, t, lambda: self._find_gap_target(rod, ball, field, skip_up=True), config.HIT_SPEED)

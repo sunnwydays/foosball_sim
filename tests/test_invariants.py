@@ -36,8 +36,10 @@ HIT_TOLERANCE = 0.10                # HIT count may drift this far either way
 # rod for a teammate's shot, hence their high BACK-BOUNCE. The rail fix added
 # 11 of those: balls hitting a man from behind next to the rail used to slip
 # through the man-to-rail gap and now bounce back (was 17/1540, HIT 1741/1959).
+# FACE-SLIDE 0 -> 1 after the hot-path speedup changed RNG draw order (lazy aim,
+# scalar random); 25k-point win/draw rates matched the old code within 0.3 pp.
 BASELINES = {
-    "HardOffense-TiltAndGap":  {"BACK-BOUNCE": 18,   "FACE-SLIDE": 0, "HIT": 1612},
+    "HardOffense-TiltAndGap":  {"BACK-BOUNCE": 18,   "FACE-SLIDE": 1, "HIT": 1612},
     "SmackBall-DefensiveWall": {"BACK-BOUNCE": 1557, "FACE-SLIDE": 0, "HIT": 2022},
 }
 
