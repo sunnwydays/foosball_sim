@@ -159,8 +159,11 @@ def _step_ball_inner(
             continue
         ht = rod.thickness / 2 + r   # half-thickness in x including ball radius
         hw = rod.width / 2 + r       # half-width in y including ball radius
+        rod_x = rod.x
+        dx = ball.x - rod_x
+        if abs(dx) >= ht:
+            continue
         for py in rod.player_positions:
-            dx = ball.x - rod.x
             dy = ball.y - py
             if abs(dx) >= ht or abs(dy) >= hw:
                 continue

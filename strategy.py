@@ -204,7 +204,30 @@ def _time_to_reach_x(x0: float, vx: float, speed: float, target_x: float) -> Opt
 _MAX_PREDICT_BOUNCES = 4
 
 
+_contact_cache: dict = {}
+_contact_cache_ball: tuple = ()
+
+
 def _predict_contact(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
+    """
+    Memoized `_predict_contact_uncached`: several strategy steps ask about the
+    same (ball, rod) pair within one tick. The cache is dropped whenever the
+    ball state changes; rod.x is in the key because choose_pos moves it mid-tick.
+    """
+    global _contact_cache_ball
+    ball_key = (ball.x, ball.y, ball.vx, ball.vy)
+    if ball_key != _contact_cache_ball:
+        _contact_cache.clear()
+        _contact_cache_ball = ball_key
+    key = (id(rod), rod.x, rod.thickness, rod.rod_x_reach)
+    try:
+        return _contact_cache[key]
+    except KeyError:
+        result = _contact_cache[key] = _predict_contact_uncached(ball, rod)
+        return result
+
+
+def _predict_contact_uncached(ball: BallState, rod: Rod) -> Optional[tuple[float, float]]:
     """
     Predict when and where the ball reaches this rod's contact face, following
     end-wall (x) bounces so a rod can anticipate the ball's return off the back
