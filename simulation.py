@@ -23,6 +23,7 @@ visualization or replay.
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass, field as dc_field
 from typing import Optional
 
@@ -247,6 +248,7 @@ def simulate_point(
     """
     if seed is not None:
         np.random.seed(seed)
+        random.seed(seed)
 
     dt = config.DT
 

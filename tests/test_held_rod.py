@@ -143,11 +143,11 @@ def test_immediate_hit_window(field):
     ball = BallState(x=rod.x, y=py)
     goal = field.goal_for_attacker(0)
     t = 2.0
-    s = SmackBall()._commit_swing(rod, ball, field, t, goal.x, 34.0, config.HIT_SPEED)
+    s = SmackBall()._commit_swing(rod, ball, field, t, lambda: (goal.x, 34.0), config.HIT_SPEED)
     assert s is not None
     assert s.active_start == t
     assert s.window_end == pytest.approx(t + config.SWING_DURATION * (1 - config.BACKSWING_RATIO))
 
     # Too fast to see and swing at: no free strike
     fast = BallState(x=rod.x, y=py, vx=config.IMMEDIATE_SWING_MAX_SPEED + 5.0)
-    assert SmackBall()._commit_swing(rod, fast, field, t, goal.x, 34.0, config.HIT_SPEED) is None
+    assert SmackBall()._commit_swing(rod, fast, field, t, lambda: (goal.x, 34.0), config.HIT_SPEED) is None

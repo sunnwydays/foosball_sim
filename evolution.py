@@ -110,6 +110,19 @@ class Agent:
     def __gt__(self, other: "Agent") -> bool:
         return self.fitness > other.fitness
 
+def _weighted_choice(weights, total=None) -> int:
+    """Index drawn with probability proportional to `weights` (cheaper than np.random.choice)."""
+    if total is None:
+        total = sum(weights)
+    r = random.random() * total
+    acc = 0.0
+    for i, w in enumerate(weights):
+        acc += w
+        if r < acc:
+            return i
+    return len(weights) - 1
+
+
 class ParameterizedStrategy(Strategy):
     """Strategy whose decisions are driven by a float genome vector."""
 
@@ -243,63 +256,61 @@ class ParameterizedStrategy(Strategy):
         goal = field.goal_for_attacker(team)
         intended_speed = config.HIT_SPEED * (0.5 + 0.5 * self.shot_speed)
 
-        if np.random.random() < self.shot_rate:
-            # shoot
-            shot_weights = np.array([self.aim_gap, self.aim_wall, self.aim_player])
-            shot_weights /= shot_weights.sum()
-            shot_choice = np.random.choice(3, p=shot_weights)
+        def aim() -> tuple[float, float]:
+            if random.random() < self.shot_rate:
+                # shoot
+                shot_choice = _weighted_choice((self.aim_gap, self.aim_wall, self.aim_player))
 
-            aim_x = goal.x
-            aim_y = (goal.y_min + goal.y_max) / 2
-            if shot_choice == 0:
-                aim_x, aim_y = self._find_gap_target(rod, ball, field)
-            elif shot_choice == 1:
-                aim_x, aim_y = _best_wall_shot(rod, ball, field, aim_x, aim_y)
-            else:
-                if team == 0:
-                    opp_passive = [r for r in field.rods if r.team != team and r.x > rod.x and not r.controlled]
-                else:
-                    opp_passive = [r for r in field.rods if r.team != team and r.x < rod.x and not r.controlled]
-
-                if opp_passive:
-                    aim_x, aim_y = _best_player_deflection(rod, ball, field, aim_x, aim_y)
-                else:
+                aim_x = goal.x
+                aim_y = (goal.y_min + goal.y_max) / 2
+                if shot_choice == 0:
                     aim_x, aim_y = self._find_gap_target(rod, ball, field)
-        else:
-            # pass
-            # Suppress pass_back near opponent goal: retreating from scoring position has no value
-            forward_frac = rod.x / field.depth if team == 0 else 1.0 - rod.x / field.depth
-            adjusted_back = self.pass_back * (1.0 - forward_frac)
-
-            # Availability: only weight options that have a valid target
-            if team == 0:
-                has_fwd  = any(r.team == team and r.x > rod.x for r in field.rods)
-                has_back = any(r.team == team and r.x < rod.x for r in field.rods)
-            else:
-                has_fwd  = any(r.team == team and r.x < rod.x for r in field.rods)
-                has_back = any(r.team == team and r.x > rod.x for r in field.rods)
-            has_side = len(rod.player_positions) > 1
-
-            pass_weights = np.array([
-                self.pass_fwd  * has_fwd,
-                adjusted_back  * has_back,
-                self.pass_side * has_side,
-            ])
-            total = pass_weights.sum()
-            if total == 0:
-                goal = field.goal_for_attacker(team)
-                aim_x, aim_y = goal.x, (goal.y_min + goal.y_max) / 2
-            else:
-                pass_weights /= total
-                pass_choice = np.random.choice(3, p=pass_weights)
-                if pass_choice == 0:
-                    aim_x, aim_y = self._aim_forward(rod, ball, field)
-                elif pass_choice == 1:
-                    aim_x, aim_y = self._aim_back(rod, ball, field)
+                elif shot_choice == 1:
+                    aim_x, aim_y = _best_wall_shot(rod, ball, field, aim_x, aim_y)
                 else:
-                    aim_x, aim_y = self._aim_side(rod, ball, field)
+                    if team == 0:
+                        opp_passive = [r for r in field.rods if r.team != team and r.x > rod.x and not r.controlled]
+                    else:
+                        opp_passive = [r for r in field.rods if r.team != team and r.x < rod.x and not r.controlled]
 
-        return self._commit_swing(rod, ball, field, t, aim_x, aim_y, intended_speed)
+                    if opp_passive:
+                        aim_x, aim_y = _best_player_deflection(rod, ball, field, aim_x, aim_y)
+                    else:
+                        aim_x, aim_y = self._find_gap_target(rod, ball, field)
+            else:
+                # pass
+                # Suppress pass_back near opponent goal: retreating from scoring position has no value
+                forward_frac = rod.x / field.depth if team == 0 else 1.0 - rod.x / field.depth
+                adjusted_back = self.pass_back * (1.0 - forward_frac)
+
+                # Availability: only weight options that have a valid target
+                if team == 0:
+                    has_fwd  = any(r.team == team and r.x > rod.x for r in field.rods)
+                    has_back = any(r.team == team and r.x < rod.x for r in field.rods)
+                else:
+                    has_fwd  = any(r.team == team and r.x < rod.x for r in field.rods)
+                    has_back = any(r.team == team and r.x > rod.x for r in field.rods)
+                has_side = len(rod.player_positions) > 1
+
+                pass_weights = (
+                    self.pass_fwd  * has_fwd,
+                    adjusted_back  * has_back,
+                    self.pass_side * has_side,
+                )
+                total = sum(pass_weights)
+                if total == 0:
+                    aim_x, aim_y = goal.x, (goal.y_min + goal.y_max) / 2
+                else:
+                    pass_choice = _weighted_choice(pass_weights, total)
+                    if pass_choice == 0:
+                        aim_x, aim_y = self._aim_forward(rod, ball, field)
+                    elif pass_choice == 1:
+                        aim_x, aim_y = self._aim_back(rod, ball, field)
+                    else:
+                        aim_x, aim_y = self._aim_side(rod, ball, field)
+            return aim_x, aim_y
+
+        return self._commit_swing(rod, ball, field, t, aim, intended_speed)
 
 
 def save_agent(agent: "Agent", path: str, metadata: dict | None = None) -> None:
