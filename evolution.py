@@ -23,6 +23,12 @@ T_PLATEAU = 0.01
 N_PLATEAU = 5
 
 RR_POINTS = 16
+# fixed opponents in fitness: round-robin alone only rewards beating siblings,
+# so a converged population never learns to beat styles it doesn't contain
+BASE_POINTS = 32        # per agent per baseline
+HOF_SAMPLE = 6          # past champions each agent plays per generation
+HOF_POINTS = 16         # per agent per sampled champion
+FITNESS_WEIGHTS = {"rr": 1.0, "base": 1.0, "hof": 1.0}  # renormalized over the parts present
 BENCHMARK_POINTS = 500  # per baseline, final benchmark of the champion
 GEN_BENCH_POINTS = 40   # per baseline, each generation's best (RR win rate is
                         # relative to the population, so it can't show progress)
@@ -55,6 +61,13 @@ for name, genes in GENE_GROUPS.items():
     idx += len(genes)
 GENOME_SIZE = idx  # 17
 
+# indep genes held at a fixed value instead of evolved; they stay in the genome so
+# saved agents still load. shot_speed and anticipation have no cost and sat at 1.0
+# in every top agent of runs 1 and 2. Delete an entry to evolve the gene again.
+FROZEN_GENES = {"shot_speed": 1.0, "anticipation": 1.0}
+_FROZEN_IDX = {_OFFSETS["indep"][0] + GENE_GROUPS["indep"].index(name): value
+               for name, value in FROZEN_GENES.items()}
+
 BASELINES = {
     "SmackBall":     SmackBall,
     "AimAtGap":      AimAtGap,
@@ -73,6 +86,12 @@ class EvolutionHistory:
     std_wr:       list[float] = dc_field(default_factory=list)
     best_genomes: list        = dc_field(default_factory=list)  # list of np.ndarray (GENOME_SIZE,)
     bench_wr:     list[dict]  = dc_field(default_factory=list)  # best genome's win rate vs each baseline
+    best_parts:   list[dict]  = dc_field(default_factory=list)  # best genome's fitness components (rr/base/hof)
+
+def _pin_frozen(genome: Genome) -> Genome:
+    for i, value in _FROZEN_IDX.items():
+        genome[i] = value
+    return genome
 
 def _group(genome: Genome, name: str) -> Genome:
     """Slice the genes belonging to a named group out of the flat genome array."""
@@ -310,7 +329,7 @@ def initialize_population() -> list[Agent]:
                 parts.append(np.random.uniform(0.0, 1.0, len(genes)))
             else:
                 parts.append(np.random.dirichlet(np.ones(len(genes))))
-        population.append(Agent(np.concatenate(parts)))
+        population.append(Agent(_pin_frozen(np.concatenate(parts))))
     return population
 
 def _make_pool():
@@ -337,12 +356,17 @@ def _matchup_worker(args: tuple[np.ndarray, np.ndarray]) -> tuple[int, int, int]
     return (a.team0_wins + b.team1_wins, a.team1_wins + b.team0_wins,
             a.n_simulations + b.n_simulations)
 
-def _bench_worker(args: tuple[np.ndarray, str, int, int]) -> tuple[int, int, int]:
-    """Genome on `side` vs a baseline: (genome wins, baseline wins, points)."""
-    genome, name, n_points, side = args
+Opponent = str | np.ndarray  # baseline name or genome
+
+def _make_strategy(opp: Opponent) -> Strategy:
+    return BASELINES[opp]() if isinstance(opp, str) else ParameterizedStrategy(opp)
+
+def _bench_worker(args: tuple[np.ndarray, Opponent, int, int]) -> tuple[int, int, int]:
+    """Genome on `side` vs an opponent: (genome wins, opponent wins, points)."""
+    genome, opp, n_points, side = args
     result = run_monte_carlo(
         Field(),
-        {side: ParameterizedStrategy(genome), 1 - side: BASELINES[name]()},
+        {side: ParameterizedStrategy(genome), 1 - side: _make_strategy(opp)},
         n_simulations=n_points,
     )
     if side == 0:
@@ -380,6 +404,40 @@ def rr_tourney(population: list[Agent], pool=None) -> list[float]:
         games[i] += g;   games[j] += g
 
     return [wins[i] / games[i] for i in range(n)]
+
+def fixed_tourney(population: list[Agent], opponents: list[Opponent], n_points: int,
+                  pool) -> list[float]:
+    """Each agent's win rate vs a fixed opponent list, half the points on each side."""
+    half = n_points // 2
+    args = [(agent.genome, opp, n, side)
+            for agent in population for opp in opponents
+            for side, n in ((0, half), (1, n_points - half))]
+    results = list(pool.map(_bench_worker, args))
+
+    per_agent = 2 * len(opponents)
+    wins  = [0] * len(population)
+    games = [0] * len(population)
+    for k, (w, _, g) in enumerate(results):
+        wins[k // per_agent]  += w
+        games[k // per_agent] += g
+    return [w / g for w, g in zip(wins, games)]
+
+def evaluate(population: list[Agent], hof: list[Genome],
+             pool) -> tuple[list[float], dict[str, list[float]]]:
+    """Fitness = weighted mean of round-robin, baseline and Hall of Fame win rates."""
+    parts = {
+        "rr":   rr_tourney(population, pool),
+        "base": fixed_tourney(population, list(BASELINES), BASE_POINTS, pool),
+    }
+    if hof:
+        # one sample per generation, shared by every agent so scores stay comparable
+        sample = random.sample(hof, min(HOF_SAMPLE, len(hof)))
+        parts["hof"] = fixed_tourney(population, sample, HOF_POINTS, pool)
+
+    total_w = sum(FITNESS_WEIGHTS[k] for k in parts)
+    scores = [sum(FITNESS_WEIGHTS[k] * parts[k][i] for k in parts) / total_w
+              for i in range(len(population))]
+    return scores, parts
 
 def _get_parents(population: list[Agent], scores: list[float]):
     parents = []
@@ -428,7 +486,7 @@ def _mutate(agent: Agent) -> Agent:
                 # degenerate: all genes zeroed out, reset to uniform
                 genome[lo:hi] = np.ones(hi - lo) / (hi - lo)
 
-    return Agent(genome)
+    return Agent(_pin_frozen(genome))
         
 # genomes -> parents -> children
 def make_children(population: list[Agent], scores: list[float]):
@@ -445,7 +503,7 @@ def make_children(population: list[Agent], scores: list[float]):
 
 
 def _record(history: EvolutionHistory, gen: int, scores: list[float], population: list["Agent"],
-            bench: dict[str, tuple[int, int, int]]) -> None:
+            bench: dict[str, tuple[int, int, int]], parts: dict[str, list[float]]) -> None:
     arr = np.array(scores)
     best_idx = int(np.argmax(arr))
     history.gen.append(gen)
@@ -455,6 +513,7 @@ def _record(history: EvolutionHistory, gen: int, scores: list[float], population
     history.std_wr.append(float(arr.std()))
     history.best_genomes.append(population[best_idx].genome.copy())
     history.bench_wr.append({name: w / g for name, (w, _, g) in bench.items()})
+    history.best_parts.append({k: float(v[best_idx]) for k, v in parts.items()})
 
 def save_history(history: EvolutionHistory, path: str) -> None:
     obj = {k: v for k, v in history.__dict__.items() if k != "best_genomes"}
@@ -463,27 +522,46 @@ def save_history(history: EvolutionHistory, path: str) -> None:
     with open(path, "w") as f:
         json.dump(obj, f, indent=1)
 
-def main() -> None:
+def _run_config() -> dict:
+    return {
+        "POP_SIZE": POP_SIZE, "N_GENERATIONS": N_GENERATIONS, "N_ELITE": N_ELITE,
+        "TOURNAMENT_SIZE": TOURNAMENT_SIZE, "MUTATION_RATE": MUTATION_RATE,
+        "MUTATION_STRENGTH": MUTATION_STRENGTH, "RR_POINTS": RR_POINTS,
+        "BASE_POINTS": BASE_POINTS, "HOF_SAMPLE": HOF_SAMPLE, "HOF_POINTS": HOF_POINTS,
+        "FITNESS_WEIGHTS": FITNESS_WEIGHTS, "FROZEN_GENES": FROZEN_GENES,
+        "GEN_BENCH_POINTS": GEN_BENCH_POINTS, "BENCHMARK_POINTS": BENCHMARK_POINTS,
+    }
+
+def main(out_dir: str = "output") -> None:
     import time
     history = EvolutionHistory()
     population = initialize_population()
-    os.makedirs("output/agents", exist_ok=True)
+    hof: list[Genome] = []  # each generation's champion, sampled as fixed opponents
+    os.makedirs(f"{out_dir}/agents", exist_ok=True)
+    with open(f"{out_dir}/run_config.json", "w") as f:
+        json.dump(_run_config(), f, indent=2)
 
     with _make_pool() as pool:
         for gen in range(N_GENERATIONS + 1):  # last pass only scores the final population
             t0 = time.perf_counter()
-            scores = rr_tourney(population, pool)
+            scores, parts = evaluate(population, hof, pool)
             best = population[int(np.argmax(scores))]
             bench = benchmark(best.genome, GEN_BENCH_POINTS, pool)
             elapsed = time.perf_counter() - t0
 
-            _record(history, gen, scores, population, bench)
+            # elites carry over, so the same champion can win several generations in a row
+            if not hof or not np.array_equal(hof[-1], best.genome):
+                hof.append(best.genome.copy())
+
+            _record(history, gen, scores, population, bench, parts)
             # checkpoint every generation so a crash or sleep doesn't lose the run
-            save_history(history, "output/evolution_history.json")
-            save_agent(best, "output/agents/best_latest.json", {"gen": gen})
+            save_history(history, f"{out_dir}/evolution_history.json")
+            save_agent(best, f"{out_dir}/agents/best_latest.json", {"gen": gen})
 
             bw = history.bench_wr[-1]
-            print(f"gen {gen:02d}  best_wr={history.best_wr[-1]:.3f}  mean_wr={history.mean_wr[-1]:.3f}"
+            bp = "  ".join(f"{k}={v:.2f}" for k, v in history.best_parts[-1].items())
+            print(f"gen {gen:02d}  best_fit={history.best_wr[-1]:.3f}  mean_fit={history.mean_wr[-1]:.3f}"
+                  f"  [{bp}]  hof={len(hof)}"
                   f"  vs baselines: min={min(bw.values()):.2f} mean={np.mean(list(bw.values())):.2f}"
                   f"  ({elapsed:.1f}s)", flush=True)
 
@@ -492,40 +570,48 @@ def main() -> None:
 
         ranked = sorted(zip(scores, population), key=lambda x: x[0], reverse=True)
         for rank, (wr, agent) in enumerate(ranked[:5]):
-            path = f"output/agents/rank{rank}.json"
+            path = f"{out_dir}/agents/rank{rank}.json"
             save_agent(agent, path, {"win_rate": round(wr, 4), "rank": rank})
-            print(f"  rank {rank}  wr={wr:.3f}  -> {path}")
+            print(f"  rank {rank}  fit={wr:.3f}  -> {path}")
 
-        print(f"\nBenchmark (rank 0 vs hardcoded strategies, {BENCHMARK_POINTS} points each):")
         bench = benchmark(ranked[0][1].genome, BENCHMARK_POINTS, pool)
 
+    lines = [f"Benchmark (rank 0 vs hardcoded strategies, {BENCHMARK_POINTS} points each):"]
     for name, (w, l, g) in bench.items():
         # if decisive points were coin flips, wins ~ Binomial(w + l, 0.5),
         # so z = (w - l) / sqrt(w + l); |z| < 2 is within noise
         z = (w - l) / math.sqrt(w + l) if w + l else 0.0
         verdict = "WIN" if z >= 2 else "LOSS" if z <= -2 else "TIE"
-        print(f"  vs {name:<16}  {w / g:.3f} - {l / g:.3f}  (draw {(g - w - l) / g:.3f})"
-              f"  z={z:+.1f}  {verdict}")
+        lines.append(f"  vs {name:<16}  {w / g:.3f} - {l / g:.3f}  (draw {(g - w - l) / g:.3f})"
+                     f"  z={z:+.1f}  {verdict}")
+    print("\n" + "\n".join(lines))
+    with open(f"{out_dir}/benchmark.txt", "w") as f:
+        f.write("\n".join(lines) + "\n")
 
     from visualization import plot_evolution_stats
-    plot_evolution_stats(history, save_path="output/evolution_stats.png")
+    plot_evolution_stats(history, save_path=f"{out_dir}/evolution_stats.png")
 
 if __name__ == "__main__":
-    import sys
-    if "--profile" in sys.argv:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", action="store_true", help="tiny run under cProfile")
+    parser.add_argument("--out-dir", default=None, help="default: output (output/profile with --profile)")
+    cli = parser.parse_args()
+
+    if cli.profile:
         import cProfile, pstats, io
         # use small params so profiling finishes quickly
         POP_SIZE = 6
         N_GENERATIONS = 1
         pr = cProfile.Profile()
         pr.enable()
-        main()
+        main(cli.out_dir or "output/profile")
         pr.disable()
         s = io.StringIO()
         pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(25)
         print(s.getvalue())
     else:
-        main()
+        main(cli.out_dir or "output")
 
 
 

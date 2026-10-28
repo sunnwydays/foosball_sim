@@ -1174,7 +1174,7 @@ def plot_evolution_stats(history, save_path: Optional[str] = None):
     ax.plot(gens, history.mean_wr, color="white",   lw=1.5, label="mean", linestyle="--")
     ax.plot(gens, history.min_wr,  color="#E8724C", lw=1,   label="min",  linestyle=":")
     ax.fill_between(gens, mean_arr - std_arr, mean_arr + std_arr, alpha=0.15, color="white")
-    _style(ax, "Fitness Trajectory", ylabel="Win Rate")
+    _style(ax, "Fitness Trajectory", ylabel="Fitness (mean of rr/base/hof)")
 
     # (0,1) Shot Composition
     ax = axes[0, 1]
@@ -1206,9 +1206,9 @@ def plot_evolution_stats(history, save_path: Optional[str] = None):
 
     # (2,1) Population Diversity
     ax = axes[2, 1]
-    ax.plot(gens, history.std_wr, color="#9B4CE8", lw=2, label="std(win_rate)")
+    ax.plot(gens, history.std_wr, color="#9B4CE8", lw=2, label="std(fitness)")
     ax.fill_between(gens, 0, history.std_wr, alpha=0.2, color="#9B4CE8")
-    _style(ax, "Population Diversity", ylabel="Std Dev of Win Rates")
+    _style(ax, "Population Diversity", ylabel="Std Dev of Fitness")
 
     fig.tight_layout(rect=[0, 0, 1, 0.97], pad=2.0)
 
