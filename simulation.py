@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field as dc_field
-from typing import Optional
+from typing import Generator, NamedTuple, Optional
 
 import numpy as np
 
@@ -75,6 +75,19 @@ class PointResult:
     action_log:  list[ActionLogEntry] = dc_field(default_factory=list)
     outcome:     str                  = 'goal'   # 'goal' | 'stallout' | 'dead_ball' | 'timeout'
     is_self_goal: bool                = False
+
+
+class TickView(NamedTuple):
+    """
+    Live (not copied) references to the sim state, yielded by iter_point once
+    before tick 0 and once after every tick that does not end the point. A
+    caller reads it (e.g. to build an RL observation) before resuming.
+    """
+    ball:             BallState
+    field:            Field
+    team_states:      dict[int, TeamState]
+    possession_timer: dict[int, float]
+    game_time:        float          # sim time at the start of the next tick
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +230,7 @@ def _resolve_rigid_contact(
 # Core simulation
 # ---------------------------------------------------------------------------
 
-def simulate_point(
+def iter_point(
     field:              Field,
     strategies:         dict[int, Strategy],
     kickoff_team:       int = 0,
@@ -229,9 +242,15 @@ def simulate_point(
     stall_hits:         Optional[list] = None,
     dead_hits:          Optional[list] = None,
     collect_action_log: bool = False,
-) -> PointResult:
+) -> Generator[TickView, None, PointResult]:
     """
-    Simulate one foosball point with time-stepped physics.
+    Simulate one foosball point with time-stepped physics, one tick per resume.
+
+    A generator: it yields a TickView before tick 0 and after each tick that
+    does not end the point, and returns the PointResult (StopIteration.value)
+    when the point ends. simulate_point drains it; an RL env steps it a tick at
+    a time and reads the state between ticks. Code between two yields is the
+    unchanged tick body, so RNG call order is the same either way.
 
     Parameters
     ----------
@@ -347,6 +366,9 @@ def simulate_point(
                 intended_vel = (s.vx, s.vy),
                 actual_vel   = (vx, vy),   # ball velocity when it passed
             ))
+
+    view = TickView(ball, field, team_states, possession_timer, 0.0)
+    yield view
 
     # --- Tick loop ---
     for tick in range(config.MAX_TICKS):
@@ -704,6 +726,8 @@ def simulate_point(
             _active = team_states[0].active_rods | team_states[1].active_rods
             frames.append(_make_frame(tick, game_time, ball, field, event, _active))
 
+        yield view._replace(game_time=(tick + 1) * dt)
+
     # --- Time limit reached ---
     return PointResult(
         winner     = None,
@@ -713,6 +737,16 @@ def simulate_point(
         action_log = _action_log,
         outcome    = 'timeout',
     )
+
+
+def simulate_point(*args, **kwargs) -> PointResult:
+    """Simulate one point to completion. Same arguments as iter_point."""
+    gen = iter_point(*args, **kwargs)
+    try:
+        while True:
+            next(gen)
+    except StopIteration as stop:
+        return stop.value
 
 
 def _make_frame(

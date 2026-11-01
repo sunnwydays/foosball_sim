@@ -49,6 +49,12 @@ Three nested loops:
 | `visualization.py` | `draw_field()`, `draw_stats()`, `replay_point()`, `plot_evolution_stats()` |
 | `play.py` | Dev tool — edit settings at top, run `python play.py` for single-point replay + heatmap |
 | `main.py` | Experiment runner — 5,000-sim matchups between hand-coded strategies |
+| `observation.py` | `build_obs()` — 47-float mirrored observation shared by both teams |
+| `ppo_strategy.py` | `PPOStrategy` (GA body + learned `choose_hit`), `play_point` |
+| `foosball_env.py` | `FoosballEnv` — Gymnasium env, one point per episode, one tick per step |
+| `train_ppo.py` | SB3 PPO training on `SubprocVecEnv`, optional self-play snapshots |
+| `elo.py` | Round-robin ladder with Bradley-Terry Elo and bootstrap CIs |
+| `debug_scripts/golden_points.py` | `--record` / `--check` exact-output regression of `simulate_point` |
 
 ### Three Separate Reach-Check Functions
 
@@ -97,7 +103,7 @@ Remaining (in priority order):
 1. **Gene modelling** — `lift_attackers`, `pass_back`, `pass_side` are near-zero in evolved agents; investigate and fix
 2. **Island model + MAP-Elites** — diversity mechanisms
 
-### Phase 4 groundwork (branch `ppo-gym-elo`, not yet merged)
+### Phase 4 groundwork (branch `ppo-gym-elo`, merged into main)
 Gymnasium env (`foosball_env.py`, `observation.py`), PPO hit policy (`ppo_strategy.py`, `train_ppo.py`), Elo ladder (`elo.py`). See `docs/ppo-notes.md`.
 
 ### Phase 3 — Game-Level Game Theory (first to 8)
